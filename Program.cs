@@ -10,7 +10,6 @@ using System.Threading;
 using System.Windows.Forms;
 using System.Data.SQLite;
 using OpenCvSharp;
-using OpenCvSharp.Extensions;
 
 namespace FPV_Hunter_FULL
 {
@@ -386,6 +385,32 @@ namespace FPV_Hunter_FULL
             Mat frame;
             DecodeFrame(iqData, out frame);
             return frame;
+        }
+
+        public Bitmap MatToBitmap(Mat mat)
+        {
+            if (mat == null || mat.Empty()) return null;
+            try
+            {
+                int width = mat.Width;
+                int height = mat.Height;
+                Bitmap bmp = new Bitmap(width, height, PixelFormat.Format24bppRgb);
+                BitmapData bmpData = bmp.LockBits(new Rectangle(0, 0, width, height), ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+                IntPtr ptr = bmpData.Scan0;
+                for (int y = 0; y < height; y++)
+                {
+                    for (int x = 0; x < width; x++)
+                    {
+                        Vec3b pixel = mat.Get<Vec3b>(y, x);
+                        Marshal.WriteByte(ptr, (y * width + x) * 3, pixel.Item2);
+                        Marshal.WriteByte(ptr, (y * width + x) * 3 + 1, pixel.Item1);
+                        Marshal.WriteByte(ptr, (y * width + x) * 3 + 2, pixel.Item0);
+                    }
+                }
+                bmp.UnlockBits(bmpData);
+                return bmp;
+            }
+            catch { return null; }
         }
 
         public void Dispose()
@@ -973,9 +998,10 @@ namespace FPV_Hunter_FULL
                                 {
                                     try
                                     {
-                                        using (var bitmap = BitmapConverter.ToBitmap(frame))
+                                        Bitmap bmp = decoder.MatToBitmap(frame);
+                                        if (bmp != null)
                                         {
-                                            videoBox.Image = new Bitmap(bitmap);
+                                            videoBox.Image = bmp;
                                         }
                                     }
                                     catch { }
