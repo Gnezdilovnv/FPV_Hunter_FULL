@@ -251,6 +251,7 @@ namespace FPV_Hunter_FULL
 
         public bool IsConnected => connected;
         public double SampleRate => sampleRate;
+        public double Frequency => frequency;
         private void Log(string msg) { OnStatusUpdate?.Invoke(msg); }
         public void Dispose() { Disconnect(); }
     }
