@@ -10,11 +10,12 @@ using System.Threading;
 using System.Windows.Forms;
 using System.Data.SQLite;
 using OpenCvSharp;
+using OpenCvSharp.Extensions;
 
 namespace FPV_Hunter_FULL
 {
     // ============================================================
-    // 1. LIBIIO (ПОЛНЫЙ ДОСТУП К PLUTO)
+    // 1. LIBIIO
     // ============================================================
     public static class libiio
     {
@@ -177,7 +178,7 @@ namespace FPV_Hunter_FULL
         public DateTime FirstSeen { get; set; }
         public DateTime LastSeen { get; set; }
         public int Count { get; set; }
-        public OpenCvSharp.Mat VideoFrame { get; set; }
+        public Mat VideoFrame { get; set; }
         public string Details { get; set; }
     }
 
@@ -339,7 +340,7 @@ namespace FPV_Hunter_FULL
 
         public bool IsRecording => isRecording;
 
-        public bool DecodeFrame(float[] iqData, out OpenCvSharp.Mat frame)
+        public bool DecodeFrame(float[] iqData, out Mat frame)
         {
             frame = null;
             try
@@ -348,7 +349,7 @@ namespace FPV_Hunter_FULL
 
                 int width = 320;
                 int height = 240;
-                frame = new OpenCvSharp.Mat(height, width, MatType.CV_8UC3);
+                frame = new Mat(height, width, MatType.CV_8UC3);
                 
                 for (int y = 0; y < height; y++)
                 {
@@ -380,9 +381,9 @@ namespace FPV_Hunter_FULL
             }
         }
 
-        public OpenCvSharp.Mat DecodeFrame(float[] iqData)
+        public Mat DecodeFrame(float[] iqData)
         {
-            OpenCvSharp.Mat frame;
+            Mat frame;
             DecodeFrame(iqData, out frame);
             return frame;
         }
@@ -967,12 +968,12 @@ namespace FPV_Hunter_FULL
 
                             if (isVideo)
                             {
-                                OpenCvSharp.Mat frame;
+                                Mat frame;
                                 if (decoder.DecodeFrame(samples, out frame))
                                 {
                                     try
                                     {
-                                        using (var bitmap = OpenCvSharp.Extensions.BitmapConverter.ToBitmap(frame))
+                                        using (var bitmap = BitmapConverter.ToBitmap(frame))
                                         {
                                             videoBox.Image = new Bitmap(bitmap);
                                         }
