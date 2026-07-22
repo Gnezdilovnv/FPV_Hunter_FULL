@@ -25,8 +25,7 @@ jobs:
         run: dotnet publish -c Release -r win-x64 --self-contained true -o publish
 
       - name: Download libiio.dll
-        run: |
-          curl -L -o publish/libiio.dll https://github.com/analogdevicesinc/libiio/releases/download/v0.24/libiio.dll
+        run: curl -L -o publish/libiio.dll https://github.com/analogdevicesinc/libiio/releases/download/v0.24/libiio.dll
 
       - name: Download OpenCvSharpExtern.dll
         run: |
@@ -37,33 +36,18 @@ jobs:
         run: |
           curl -L -o ffmpeg.7z https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-6.1.1-full_build.7z
           7z x ffmpeg.7z -y
-          cp ffmpeg-*/bin/*.dll publish/ 2>nul || echo "FFmpeg DLLs copied"
+          cp ffmpeg-*/bin/*.dll publish/
 
       - name: Check all DLLs
         run: |
-          echo "========================================"
-          echo "     CHECKING ALL DLLs"
-          echo "========================================"
-          echo ""
-          echo "📁 Files in publish folder:"
-          dir publish\*.exe publish\*.dll
-          echo ""
-          echo "🔍 Checking required DLLs:"
-          echo "----------------------------------------"
-          if exist publish\libiio.dll (echo ✅ libiio.dll - OK) else (echo ❌ libiio.dll - MISSING)
-          if exist publish\OpenCvSharpExtern.dll (echo ✅ OpenCvSharpExtern.dll - OK) else (echo ❌ OpenCvSharpExtern.dll - MISSING)
-          if exist publish\avcodec-58.dll (echo ✅ avcodec-58.dll - OK) else (echo ❌ avcodec-58.dll - MISSING)
-          if exist publish\avformat-58.dll (echo ✅ avformat-58.dll - OK) else (echo ❌ avformat-58.dll - MISSING)
-          if exist publish\avutil-56.dll (echo ✅ avutil-56.dll - OK) else (echo ❌ avutil-56.dll - MISSING)
-          if exist publish\swscale-5.dll (echo ✅ swscale-5.dll - OK) else (echo ❌ swscale-5.dll - MISSING)
-          echo "----------------------------------------"
-          echo ""
-          echo "📊 File sizes:"
-          dir publish\*.dll | findstr "libiio OpenCvSharpExtern avcodec avformat avutil swscale"
-          echo ""
-          echo "========================================"
-          echo "✅ ALL CHECKS COMPLETED"
-          echo "========================================"
+          echo "=== CHECKING DLLs ==="
+          dir publish\*.dll
+          if exist publish\libiio.dll (echo ✅ libiio.dll) else (echo ❌ libiio.dll)
+          if exist publish\OpenCvSharpExtern.dll (echo ✅ OpenCvSharpExtern.dll) else (echo ❌ OpenCvSharpExtern.dll)
+          if exist publish\avcodec-58.dll (echo ✅ avcodec-58.dll) else (echo ❌ avcodec-58.dll)
+          if exist publish\avformat-58.dll (echo ✅ avformat-58.dll) else (echo ❌ avformat-58.dll)
+          if exist publish\avutil-56.dll (echo ✅ avutil-56.dll) else (echo ❌ avutil-56.dll)
+          if exist publish\swscale-5.dll (echo ✅ swscale-5.dll) else (echo ❌ swscale-5.dll)
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
