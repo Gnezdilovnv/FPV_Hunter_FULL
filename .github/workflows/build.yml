@@ -41,10 +41,10 @@ jobs:
       - name: Check all DLLs
         run: |
           echo "=== CHECKING DLLs ==="
-          dir publish\*.dll
-          if exist publish\libiio.dll (echo ✅ libiio.dll) else (echo ❌ libiio.dll)
-          if exist publish\OpenCvSharpExtern.dll (echo ✅ OpenCvSharpExtern.dll) else (echo ❌ OpenCvSharpExtern.dll)
-          if exist publish\avcodec-*.dll (echo ✅ FFmpeg DLLs found) else (echo ❌ FFmpeg DLLs missing)
+          Get-ChildItem publish\*.dll
+          if (Test-Path publish\libiio.dll) { Write-Host "✅ libiio.dll" } else { Write-Host "❌ libiio.dll" }
+          if (Test-Path publish\OpenCvSharpExtern.dll) { Write-Host "✅ OpenCvSharpExtern.dll" } else { Write-Host "❌ OpenCvSharpExtern.dll" }
+          if (Test-Path publish\avcodec-*.dll) { Write-Host "✅ FFmpeg DLLs found" } else { Write-Host "❌ FFmpeg DLLs missing" }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
