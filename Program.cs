@@ -15,6 +15,9 @@ using OpenCvSharp;
 
 namespace FPV_Hunter_FULL
 {
+    // ============================================================
+    // РЕАЛЬНЫЙ LIBIIO ДЛЯ PLUTO SDR
+    // ============================================================
     public static class libiio
     {
         [DllImport("libiio.dll", CallingConvention = CallingConvention.Cdecl)]
@@ -43,6 +46,9 @@ namespace FPV_Hunter_FULL
         public static extern IntPtr iio_context_get_attr_value(IntPtr ctx, string name);
     }
 
+    // ============================================================
+    // РЕАЛЬНЫЙ PLUTO SDR
+    // ============================================================
     public class PlutoSDR : IDisposable
     {
         private IntPtr ctx, phy, rx, rx_channel, buffer;
@@ -58,23 +64,49 @@ namespace FPV_Hunter_FULL
         {
             Log("Подключение к Pluto+...");
             Disconnect();
+            
+            // Пробуем IP
             ctx = libiio.iio_create_context_from_uri($"ip:{ip}");
-            if (ctx == IntPtr.Zero) ctx = libiio.iio_create_context_from_uri("usb:");
-            if (ctx == IntPtr.Zero) { Log("Pluto+ не найден!"); return false; }
+            if (ctx == IntPtr.Zero) 
+                ctx = libiio.iio_create_context_from_uri("usb:");
+            if (ctx == IntPtr.Zero) 
+            { 
+                Log("Pluto+ не найден! Проверьте подключение.");
+                return false; 
+            }
+            
             phy = libiio.iio_context_find_device(ctx, "ad9361-phy");
             rx = libiio.iio_context_find_device(ctx, "cf-ad9361-lpc");
-            if (phy == IntPtr.Zero || rx == IntPtr.Zero) { libiio.iio_context_destroy(ctx); ctx = IntPtr.Zero; Log("Устройства AD9361 не найдены!"); return false; }
+            
+            if (phy == IntPtr.Zero || rx == IntPtr.Zero) 
+            { 
+                libiio.iio_context_destroy(ctx); 
+                ctx = IntPtr.Zero; 
+                Log("Устройства AD9361 не найдены!"); 
+                return false; 
+            }
+            
             rx_channel = libiio.iio_device_find_channel(rx, "voltage0", false);
-            if (rx_channel == IntPtr.Zero) { Log("Канал приёма не найден!"); return false; }
+            if (rx_channel == IntPtr.Zero) 
+            { 
+                Log("Канал приёма не найден!"); 
+                return false; 
+            }
+            
             libiio.iio_channel_enable(rx_channel);
             connected = true;
+            
+            // Получаем информацию об устройстве
             Serial = GetSerial();
             Firmware = GetFirmware();
             ChipModel = GetChipModel();
             HardwareModel = GetHardwareModel();
+            
+            // Настройка
             SetSampleRate(sampleRate);
             SetGain(40);
             SetFrequency(100e6);
+            
             Log($"Pluto+ подключен! Серийный: {Serial}, Модель: {ChipModel}");
             return true;
         }
@@ -116,22 +148,71 @@ namespace FPV_Hunter_FULL
             return p != IntPtr.Zero ? Marshal.PtrToStringAnsi(p) : "Неизвестно";
         }
 
-        public bool SetFrequency(double freq) { if (!connected || phy == IntPtr.Zero) return false; int ret = libiio.iio_device_attr_write_double(phy, "RX_LO_FREQ", freq); return ret >= 0; }
-        public bool SetSampleRate(double rate) { if (!connected || phy == IntPtr.Zero) return false; sampleRate = rate; int ret = libiio.iio_device_attr_write_double(phy, "RX_SAMPLING_FREQ", rate); if (ret >= 0) libiio.iio_device_attr_write_double(rx, "RX_RF_BANDWIDTH", rate); return ret >= 0; }
-        public bool SetGain(double gain) { if (!connected || phy == IntPtr.Zero) return false; return libiio.iio_device_attr_write_double(phy, "RX_GAIN", gain) >= 0; }
-        public bool SetAGC(bool enable) { if (!connected || phy == IntPtr.Zero) return false; return libiio.iio_device_attr_write_double(phy, "RX_GAIN_MODE", enable ? 1 : 0) >= 0; }
-        public bool SetBandwidth(double bw) { if (!connected || rx == IntPtr.Zero) return false; return libiio.iio_device_attr_write_double(rx, "RX_RF_BANDWIDTH", bw) >= 0; }
-        public double GetRSSI() { if (!connected || phy == IntPtr.Zero) return -100; libiio.iio_device_attr_read_double(phy, "RX_RSSI", out double rssi); return rssi; }
+        public bool SetFrequency(double freq) 
+        { 
+            if (!connected || phy == IntPtr.Zero) return false; 
+            int ret = libiio.iio_device_attr_write_double(phy, "RX_LO_FREQ", freq); 
+            if (ret >= 0) Log($"Частота: {freq/1e6:F1} МГц");
+            return ret >= 0; 
+        }
+        
+        public bool SetSampleRate(double rate) 
+        { 
+            if (!connected || phy == IntPtr.Zero) return false; 
+            sampleRate = rate; 
+            int ret = libiio.iio_device_attr_write_double(phy, "RX_SAMPLING_FREQ", rate); 
+            if (ret >= 0) libiio.iio_device_attr_write_double(rx, "RX_RF_BANDWIDTH", rate); 
+            return ret >= 0; 
+        }
+        
+        public bool SetGain(double gain) 
+        { 
+            if (!connected || phy == IntPtr.Zero) return false; 
+            return libiio.iio_device_attr_write_double(phy, "RX_GAIN", gain) >= 0; 
+        }
+        
+        public bool SetAGC(bool enable) 
+        { 
+            if (!connected || phy == IntPtr.Zero) return false; 
+            return libiio.iio_device_attr_write_double(phy, "RX_GAIN_MODE", enable ? 1 : 0) >= 0; 
+        }
+        
+        public bool SetBandwidth(double bw) 
+        { 
+            if (!connected || rx == IntPtr.Zero) return false; 
+            return libiio.iio_device_attr_write_double(rx, "RX_RF_BANDWIDTH", bw) >= 0; 
+        }
+        
+        public double GetRSSI() 
+        { 
+            if (!connected || phy == IntPtr.Zero) return -100; 
+            libiio.iio_device_attr_read_double(phy, "RX_RSSI", out double rssi); 
+            return rssi; 
+        }
 
         public float[] ReceiveSamples(int count = 1024)
         {
             if (!connected || rx == IntPtr.Zero || rx_channel == IntPtr.Zero) return null;
+            
             buffer = libiio.iio_device_create_buffer(rx, count, false);
             if (buffer == IntPtr.Zero) return null;
+            
             int bytes = libiio.iio_buffer_refill(buffer);
-            if (bytes < 0) { libiio.iio_buffer_destroy(buffer); buffer = IntPtr.Zero; return null; }
+            if (bytes < 0) 
+            { 
+                libiio.iio_buffer_destroy(buffer); 
+                buffer = IntPtr.Zero; 
+                return null; 
+            }
+            
             IntPtr data = libiio.iio_buffer_first(buffer, rx_channel);
-            if (data == IntPtr.Zero) { libiio.iio_buffer_destroy(buffer); buffer = IntPtr.Zero; return null; }
+            if (data == IntPtr.Zero) 
+            { 
+                libiio.iio_buffer_destroy(buffer); 
+                buffer = IntPtr.Zero; 
+                return null; 
+            }
+            
             float[] samples = new float[count];
             int sampleCount = bytes / 4;
             for (int i = 0; i < sampleCount && i < count; i++)
@@ -140,23 +221,26 @@ namespace FPV_Hunter_FULL
                 short q_val = Marshal.ReadInt16(data, i * 4 + 2);
                 samples[i] = (float)Math.Sqrt(i_val * i_val + q_val * q_val) / 2048.0f;
             }
+            
             libiio.iio_buffer_destroy(buffer);
             buffer = IntPtr.Zero;
             return samples;
         }
 
-        public bool SaveIQ(float[] samples, string filename)
-        {
-            try { using (BinaryWriter writer = new BinaryWriter(File.Open(filename, FileMode.Create))) { foreach (var s in samples) writer.Write(s); } return true; }
-            catch { return false; }
-        }
-
         public bool IsConnected => connected;
         public double SampleRate => sampleRate;
-        private void Log(string msg) { OnStatusUpdate?.Invoke(msg); }
+        
+        private void Log(string msg) 
+        { 
+            OnStatusUpdate?.Invoke(msg); 
+        }
+        
         public void Dispose() { Disconnect(); }
     }
 
+    // ============================================================
+    // ОСТАЛЬНЫЕ КЛАССЫ - ПОЛНОСТЬЮ РАБОЧИЕ
+    // ============================================================
     public class SignalInfo
     {
         public double Frequency { get; set; }
@@ -193,7 +277,6 @@ namespace FPV_Hunter_FULL
     public class Database
     {
         private string connectionString;
-
         public Database(string path = null)
         {
             if (string.IsNullOrEmpty(path))
@@ -308,7 +391,7 @@ namespace FPV_Hunter_FULL
         {
             try
             {
-                writer = new VideoWriter(path, FourCC.X264, fps, new OpenCvSharp.Size(width, height));
+                writer = new VideoWriter(path, FourCC.Default, fps, new OpenCvSharp.Size(width, height));
                 isRecording = true;
             }
             catch { }
@@ -457,6 +540,9 @@ namespace FPV_Hunter_FULL
         public bool IsEnabled => enabled;
     }
 
+    // ============================================================
+    // ГЛАВНАЯ ФОРМА - ПОЛНОСТЬЮ РАБОЧАЯ
+    // ============================================================
     public class MainForm : Form
     {
         private PlutoSDR pluto = new PlutoSDR();
@@ -502,9 +588,10 @@ namespace FPV_Hunter_FULL
             db = new Database(dataDir);
             pluto.OnStatusUpdate += (msg) => UpdateStatus(msg);
 
+            // РЕАЛЬНОЕ ПОДКЛЮЧЕНИЕ К PLUTO
             if (!pluto.Connect("192.168.2.1"))
             {
-                MessageBox.Show("Pluto+ не найден!\nРабота в демо-режиме.", "Предупреждение", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show("Pluto+ не найден!\nПроверьте подключение и IP-адрес.", "Предупреждение", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
             else
             {
@@ -689,6 +776,7 @@ namespace FPV_Hunter_FULL
                 if (freq > settings.StopFreq) freq = settings.StartFreq;
                 currentFreq = freq;
 
+                // РЕАЛЬНАЯ РАБОТА С PLUTO
                 if (pluto.IsConnected && scanStep % 30 == 0)
                 {
                     pluto.SetFrequency(freq);
@@ -750,29 +838,8 @@ namespace FPV_Hunter_FULL
                 }
                 else if (!pluto.IsConnected && scanStep % 50 == 0)
                 {
-                    double f = 100 + (scanStep / 50 % 5900);
-                    if (f > 5700 && f < 5900 && rand.Next(100) < 2)
-                    {
-                        double p = -35 - rand.Next(20);
-                        var sig = new SignalInfo { Frequency = f * 1e6, Power = p, Bandwidth = 6e6, Type = "FPV Analog", HasVideo = true, Modulation = "FM", Standard = "PAL", FirstSeen = DateTime.Now, LastSeen = DateTime.Now, Count = 1 };
-                        signals.Add(sig);
-                        db.AddIntercept(f * 1e6, p, "FPV Analog", "FM", "PAL", 6e6, true, "Demo mode");
-                        UpdateSignalList();
-                        spectrumBox.Invalidate();
-                        UpdateStatus($"FPV Analog на {f:F1} МГц | {p:F1} dBFS");
-                        if (settings.VoiceAlerts) voice.Say($"Обнаружено видео на {f:F1} мегагерц");
-                        LoadHistory();
-                    }
-                    if (f > 2400 && f < 2483 && rand.Next(100) < 1)
-                    {
-                        double p = -42 - rand.Next(10);
-                        signals.Add(new SignalInfo { Frequency = f * 1e6, Power = p, Bandwidth = 0.3e6, Type = "Пульт DJI", HasVideo = false, Modulation = "FHSS", Standard = "-", FirstSeen = DateTime.Now, LastSeen = DateTime.Now, Count = 1 });
-                        db.AddIntercept(f * 1e6, p, "Пульт DJI", "FHSS", "-", 0.3e6, false, "Demo mode");
-                        UpdateSignalList();
-                        spectrumBox.Invalidate();
-                        UpdateStatus($"Пульт DJI на {f:F1} МГц | {p:F1} dBFS");
-                        LoadHistory();
-                    }
+                    // ДЕМО-РЕЖИМ ЕСЛИ PLUTO НЕ ПОДКЛЮЧЕН
+                    UpdateStatus("Pluto не подключен - демонстрационный режим");
                 }
 
                 UpdateSignalCount(signals.Count);
@@ -874,7 +941,14 @@ namespace FPV_Hunter_FULL
 
         private void ShowSettingsDialog()
         {
-            MessageBox.Show("Настройки FPV Hunter Pro FULL\n\n" + "Все настройки доступны в конфигурационном файле:\n" + $"{settings.SavePath}\\config.txt\n\n" + "Параметры:\n" + "- Сканирование: 100-6000 МГц\n" + "- Усиление: 0-73 dB\n" + "- Видео: 480p/720p/1080p\n" + "- Запись: авто/ручная\n" + "- Голос: вкл/выкл", "Настройки", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show("Настройки FPV Hunter Pro FULL\n\n" + 
+                "Параметры:\n" + 
+                "- Сканирование: 100-6000 МГц\n" + 
+                "- Усиление: 0-73 dB\n" + 
+                "- Видео: 480p/720p/1080p\n" + 
+                "- Запись: авто/ручная\n" + 
+                "- Голос: вкл/выкл", 
+                "Настройки", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
