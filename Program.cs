@@ -16,7 +16,7 @@ using System.Threading;
 using System.Windows.Forms;
 using System.Data.SQLite;
 using OpenCvSharp;
-using OpenCvSharp.Extensions;
+
 using FFMpegCore;
 using FFMpegCore.Extend;
 
@@ -1047,7 +1047,7 @@ namespace FPV_Hunter_FULL
                                 Mat frame;
                                 if (decoder.DecodeFrame(samples, out frame))
                                 {
-                                    using (var bitmap = BitmapConverter.ToBitmap(frame))
+                                    using (var bitmap = OpenCvSharp.Extensions.BitmapConverter.ToBitmap(frame))
                                     {
                                         videoBox.Image = new Bitmap(bitmap);
                                     }
