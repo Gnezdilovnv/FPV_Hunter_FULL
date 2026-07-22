@@ -32,11 +32,11 @@ jobs:
           curl -L -o opencv.zip https://www.nuget.org/api/v2/package/OpenCvSharp4.runtime.win/4.8.0.20230708
           unzip -j opencv.zip "runtimes/win-x64/native/OpenCvSharpExtern.dll" -d publish/
 
-      - name: Download FFmpeg DLLs (alternative link)
+      - name: Download FFmpeg DLLs
         run: |
-          curl -L -o ffmpeg.zip https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n6.0-latest-win64-gpl-shared-6.0.zip
-          7z x ffmpeg.zip -y
-          cp ffmpeg-*/bin/*.dll publish/ 2>nul || cp ffmpeg-n6.0-latest-win64-gpl-shared-6.0/bin/*.dll publish/ 2>nul || echo "FFmpeg DLLs not found"
+          curl -L -o ffmpeg.7z https://www.gyan.dev/ffmpeg/builds/ffmpeg-git-full.7z
+          7z x ffmpeg.7z -y
+          cp ffmpeg-*/bin/*.dll publish/
 
       - name: Check all DLLs
         run: |
