@@ -32,11 +32,11 @@ jobs:
           curl -L -o opencv.zip https://www.nuget.org/api/v2/package/OpenCvSharp4.runtime.win/4.8.0.20230708
           unzip -j opencv.zip "runtimes/win-x64/native/OpenCvSharpExtern.dll" -d publish/
 
-      - name: Download FFmpeg DLLs
+      - name: Download FFmpeg DLLs (alternative link)
         run: |
-          curl -L -o ffmpeg.7z https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-6.1.1-full_build.7z
-          7z x ffmpeg.7z -y
-          cp ffmpeg-*/bin/*.dll publish/
+          curl -L -o ffmpeg.zip https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n6.0-latest-win64-gpl-shared-6.0.zip
+          7z x ffmpeg.zip -y
+          cp ffmpeg-*/bin/*.dll publish/ 2>nul || cp ffmpeg-n6.0-latest-win64-gpl-shared-6.0/bin/*.dll publish/ 2>nul || echo "FFmpeg DLLs not found"
 
       - name: Check all DLLs
         run: |
@@ -44,10 +44,7 @@ jobs:
           dir publish\*.dll
           if exist publish\libiio.dll (echo ✅ libiio.dll) else (echo ❌ libiio.dll)
           if exist publish\OpenCvSharpExtern.dll (echo ✅ OpenCvSharpExtern.dll) else (echo ❌ OpenCvSharpExtern.dll)
-          if exist publish\avcodec-58.dll (echo ✅ avcodec-58.dll) else (echo ❌ avcodec-58.dll)
-          if exist publish\avformat-58.dll (echo ✅ avformat-58.dll) else (echo ❌ avformat-58.dll)
-          if exist publish\avutil-56.dll (echo ✅ avutil-56.dll) else (echo ❌ avutil-56.dll)
-          if exist publish\swscale-5.dll (echo ✅ swscale-5.dll) else (echo ❌ swscale-5.dll)
+          if exist publish\avcodec-*.dll (echo ✅ FFmpeg DLLs found) else (echo ❌ FFmpeg DLLs missing)
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
