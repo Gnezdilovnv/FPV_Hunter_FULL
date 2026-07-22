@@ -1,0 +1,69 @@
+name: Build FULL Windows EXE
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+    - name: Install NuGet packages
+      run: |
+        dotnet add package System.Data.SQLite
+        dotnet add package OpenCvSharp4.Windows
+        dotnet add package System.Speech
+        dotnet add package FFMpegCore
+    - name: Install libiio
+      run: |
+        curl -L -o libiio.dll https://github.com/analogdevicesinc/libiio/releases/download/v0.25/libiio.dll
+        curl -L -o libxml2-2.dll https://github.com/Gnezdilovnv/FPV_Hunter_FULL/releases/download/v1.0/libxml2-2.dll
+        curl -L -o liblzma-5.dll https://github.com/Gnezdilovnv/FPV_Hunter_FULL/releases/download/v1.0/liblzma-5.dll
+        curl -L -o libzstd.dll https://github.com/Gnezdilovnv/FPV_Hunter_FULL/releases/download/v1.0/libzstd.dll
+        curl -L -o libbrotlidec.dll https://github.com/Gnezdilovnv/FPV_Hunter_FULL/releases/download/v1.0/libbrotlidec.dll
+        curl -L -o libbrotlicommon.dll https://github.com/Gnezdilovnv/FPV_Hunter_FULL/releases/download/v1.0/libbrotlicommon.dll
+    - name: Install OpenCV
+      run: |
+        curl -L -o OpenCvSharpExtern.dll https://github.com/Gnezdilovnv/FPV_Hunter_FULL/releases/download/v1.0/OpenCvSharpExtern.dll
+        curl -L -o opencv_world480.dll https://github.com/Gnezdilovnv/FPV_Hunter_FULL/releases/download/v1.0/opencv_world480.dll
+    - name: Install FFmpeg
+      run: |
+        curl -L -o avcodec-58.dll https://github.com/Gnezdilovnv/FPV_Hunter_FULL/releases/download/v1.0/avcodec-58.dll
+        curl -L -o avdevice-58.dll https://github.com/Gnezdilovnv/FPV_Hunter_FULL/releases/download/v1.0/avdevice-58.dll
+        curl -L -o avfilter-7.dll https://github.com/Gnezdilovnv/FPV_Hunter_FULL/releases/download/v1.0/avfilter-7.dll
+        curl -L -o avformat-58.dll https://github.com/Gnezdilovnv/FPV_Hunter_FULL/releases/download/v1.0/avformat-58.dll
+        curl -L -o avutil-56.dll https://github.com/Gnezdilovnv/FPV_Hunter_FULL/releases/download/v1.0/avutil-56.dll
+        curl -L -o postproc-55.dll https://github.com/Gnezdilovnv/FPV_Hunter_FULL/releases/download/v1.0/postproc-55.dll
+        curl -L -o swresample-3.dll https://github.com/Gnezdilovnv/FPV_Hunter_FULL/releases/download/v1.0/swresample-3.dll
+        curl -L -o swscale-5.dll https://github.com/Gnezdilovnv/FPV_Hunter_FULL/releases/download/v1.0/swscale-5.dll
+    - name: Build
+      run: |
+        dotnet restore
+        dotnet build -c Release
+    - name: Upload EXE and DLLs
+      uses: actions/upload-artifact@v4
+      with:
+        name: FPV_Hunter_FULL
+        path: |
+          bin\Release\net48\FPV_Hunter_FULL.exe
+          libiio.dll
+          libxml2-2.dll
+          liblzma-5.dll
+          libzstd.dll
+          libbrotlidec.dll
+          libbrotlicommon.dll
+          OpenCvSharpExtern.dll
+          opencv_world480.dll
+          avcodec-58.dll
+          avdevice-58.dll
+          avfilter-7.dll
+          avformat-58.dll
+          avutil-56.dll
+          postproc-55.dll
+          swresample-3.dll
+          swscale-5.dll
