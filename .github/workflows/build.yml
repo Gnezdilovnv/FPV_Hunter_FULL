@@ -1,4 +1,4 @@
-name: Build EXE
+name: Build FPV Hunter FULL
 
 on:
   push:
@@ -8,27 +8,51 @@ on:
 jobs:
   build:
     runs-on: windows-latest
-    
+
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-    
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: 6.0.x
-    
-    - name: Restore
-      run: dotnet restore
-    
-    - name: Build
-      run: dotnet build -c Release
-    
-    - name: Publish
-      run: dotnet publish -c Release -r win-x64 --self-contained false -o publish
-    
-    - name: Upload All Files
-      uses: actions/upload-artifact@v4
-      with:
-        name: FPV_Hunter_FULL
-        path: publish/
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 6.0.x
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Publish Self-Contained EXE
+        run: dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish
+
+      - name: Download libiio.dll
+        run: |
+          curl -L -o publish/libiio.dll https://github.com/analogdevicesinc/libiio/releases/download/v0.24/libiio.dll
+
+      - name: Download OpenCvSharpExtern.dll
+        run: |
+          curl -L -o opencv.zip https://www.nuget.org/api/v2/package/OpenCvSharp4.runtime.win/4.8.0.20230708
+          unzip -j opencv.zip "runtimes/win-x64/native/OpenCvSharpExtern.dll" -d publish/
+
+      - name: Download FFmpeg DLLs
+        run: |
+          curl -L -o ffmpeg.7z https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-6.1.1-full_build.7z
+          7z x ffmpeg.7z -y
+          cp ffmpeg-*/bin/*.dll publish/ 2>nul || echo "FFmpeg DLLs copied"
+
+      - name: Check all DLLs
+        run: |
+          echo "=== CHECKING DLLs ==="
+          dir publish\*.dll
+          echo ""
+          echo "=== CHECKING libiio.dll ==="
+          if exist publish\libiio.dll (echo ✅ libiio.dll OK) else (echo ❌ libiio.dll MISSING)
+          echo "=== CHECKING OpenCvSharpExtern.dll ==="
+          if exist publish\OpenCvSharpExtern.dll (echo ✅ OpenCvSharpExtern.dll OK) else (echo ❌ OpenCvSharpExtern.dll MISSING)
+          echo "=== CHECKING FFmpeg DLLs ==="
+          dir publish\av*.dll 2>nul || echo "No FFmpeg DLLs found"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FPV_Hunter_FULL
+          path: publish/
