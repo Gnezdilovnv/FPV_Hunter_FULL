@@ -8,14 +8,11 @@ using System.Runtime.InteropServices;
 using System.Speech.Synthesis;
 using System.Threading;
 using System.Windows.Forms;
-using System.Data.SQLite;
 using Point = System.Drawing.Point;
 using Size = System.Drawing.Size;
-using OpenCvSharp;
 
 namespace FPV_Hunter_FULL
 {
-    // 1. SignalInfo
     public class SignalInfo
     {
         public double Frequency { get; set; }
@@ -31,7 +28,6 @@ namespace FPV_Hunter_FULL
         public string Details { get; set; }
     }
 
-    // 2. VoiceAnnouncer
     public class VoiceAnnouncer
     {
         private SpeechSynthesizer synth;
@@ -42,104 +38,120 @@ namespace FPV_Hunter_FULL
         public bool IsEnabled => enabled;
     }
 
-    // 3. Database
     public class Database
     {
-        private string connectionString;
+        private string logFile;
+        private List<SignalInfo> history = new List<SignalInfo>();
+        private object lockObj = new object();
+
         public Database(string path = null)
         {
-            if (string.IsNullOrEmpty(path)) path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data");
-            if (!Directory.Exists(path)) Directory.CreateDirectory(path);
-            string dbPath = Path.Combine(path, "history.db");
-            connectionString = $"Data Source={dbPath};Version=3;";
-            CreateTable();
+            if (string.IsNullOrEmpty(path))
+                path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data");
+            
+            if (!Directory.Exists(path))
+                Directory.CreateDirectory(path);
+
+            logFile = Path.Combine(path, "signals.log");
+            LoadHistory();
         }
-        private void CreateTable()
+
+        private void LoadHistory()
         {
-            using (var conn = new SQLiteConnection(connectionString))
+            lock (lockObj)
             {
-                conn.Open();
-                string sql = @"CREATE TABLE IF NOT EXISTS intercepts (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
-                    frequency REAL NOT NULL,
-                    power REAL NOT NULL,
-                    type TEXT NOT NULL,
-                    modulation TEXT,
-                    standard TEXT,
-                    bandwidth REAL,
-                    has_video INTEGER,
-                    details TEXT
-                )";
-                using (var cmd = new SQLiteCommand(sql, conn)) cmd.ExecuteNonQuery();
-            }
-        }
-        public void AddIntercept(double freq, double power, string type, string modulation, string standard, double bandwidth, bool hasVideo, string details = "")
-        {
-            using (var conn = new SQLiteConnection(connectionString))
-            {
-                conn.Open();
-                string sql = @"INSERT INTO intercepts (timestamp, frequency, power, type, modulation, standard, bandwidth, has_video, details)
-                              VALUES (@time, @freq, @power, @type, @mod, @std, @bw, @video, @details)";
-                using (var cmd = new SQLiteCommand(sql, conn))
+                try
                 {
-                    cmd.Parameters.AddWithValue("@time", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
-                    cmd.Parameters.AddWithValue("@freq", freq);
-                    cmd.Parameters.AddWithValue("@power", power);
-                    cmd.Parameters.AddWithValue("@type", type);
-                    cmd.Parameters.AddWithValue("@mod", modulation);
-                    cmd.Parameters.AddWithValue("@std", standard);
-                    cmd.Parameters.AddWithValue("@bw", bandwidth);
-                    cmd.Parameters.AddWithValue("@video", hasVideo ? 1 : 0);
-                    cmd.Parameters.AddWithValue("@details", details);
-                    cmd.ExecuteNonQuery();
-                }
-            }
-        }
-        public List<SignalInfo> GetHistory(int limit = 100)
-        {
-            var result = new List<SignalInfo>();
-            using (var conn = new SQLiteConnection(connectionString))
-            {
-                conn.Open();
-                string sql = "SELECT * FROM intercepts ORDER BY id DESC LIMIT @limit";
-                using (var cmd = new SQLiteCommand(sql, conn))
-                {
-                    cmd.Parameters.AddWithValue("@limit", limit);
-                    using (var reader = cmd.ExecuteReader())
+                    if (File.Exists(logFile))
                     {
-                        while (reader.Read())
+                        var lines = File.ReadAllLines(logFile);
+                        foreach (var line in lines)
                         {
-                            result.Add(new SignalInfo
+                            try
                             {
-                                Frequency = reader.GetDouble(2),
-                                Power = reader.GetDouble(3),
-                                Type = reader.GetString(4),
-                                Modulation = reader.GetString(5),
-                                Standard = reader.GetString(6),
-                                Bandwidth = reader.GetDouble(7),
-                                HasVideo = reader.GetInt32(8) == 1,
-                                Details = reader.GetString(9),
-                                FirstSeen = DateTime.Parse(reader.GetString(1))
-                            });
+                                var parts = line.Split('|');
+                                if (parts.Length >= 9)
+                                {
+                                    history.Add(new SignalInfo
+                                    {
+                                        Frequency = double.Parse(parts[0]),
+                                        Power = double.Parse(parts[1]),
+                                        Type = parts[2],
+                                        Modulation = parts[3],
+                                        Standard = parts[4],
+                                        Bandwidth = double.Parse(parts[5]),
+                                        HasVideo = parts[6] == "1",
+                                        Details = parts[7],
+                                        FirstSeen = DateTime.Parse(parts[8]),
+                                        LastSeen = DateTime.Parse(parts[8])
+                                    });
+                                }
+                            }
+                            catch { }
                         }
                     }
                 }
+                catch { }
             }
-            return result;
         }
+
+        public void AddIntercept(double freq, double power, string type, string modulation, string standard, double bandwidth, bool hasVideo, string details = "")
+        {
+            lock (lockObj)
+            {
+                try
+                {
+                    var existing = history.FirstOrDefault(x => Math.Abs(x.Frequency - freq) < 100000);
+                    if (existing != null)
+                    {
+                        existing.Power = power;
+                        existing.LastSeen = DateTime.Now;
+                        existing.Count++;
+                        return;
+                    }
+
+                    var signal = new SignalInfo
+                    {
+                        Frequency = freq,
+                        Power = power,
+                        Type = type,
+                        Modulation = modulation,
+                        Standard = standard,
+                        Bandwidth = bandwidth,
+                        HasVideo = hasVideo,
+                        Details = details,
+                        FirstSeen = DateTime.Now,
+                        LastSeen = DateTime.Now,
+                        Count = 1
+                    };
+                    history.Add(signal);
+
+                    // Сохраняем в файл
+                    var line = $"{freq}|{power}|{type}|{modulation}|{standard}|{bandwidth}|{(hasVideo ? 1 : 0)}|{details}|{DateTime.Now}";
+                    File.AppendAllText(logFile, line + Environment.NewLine);
+                }
+                catch { }
+            }
+        }
+
+        public List<SignalInfo> GetHistory(int limit = 100)
+        {
+            lock (lockObj)
+            {
+                return history.OrderByDescending(x => x.FirstSeen).Take(limit).ToList();
+            }
+        }
+
         public void ClearHistory()
         {
-            using (var conn = new SQLiteConnection(connectionString))
+            lock (lockObj)
             {
-                conn.Open();
-                string sql = "DELETE FROM intercepts";
-                using (var cmd = new SQLiteCommand(sql, conn)) cmd.ExecuteNonQuery();
+                history.Clear();
+                try { File.Delete(logFile); } catch { }
             }
         }
     }
 
-    // 4. libiio
     public static class libiio
     {
         [DllImport("libiio.dll", CallingConvention = CallingConvention.Cdecl)]
@@ -168,7 +180,6 @@ namespace FPV_Hunter_FULL
         public static extern IntPtr iio_context_get_attr_value(IntPtr ctx, string name);
     }
 
-    // 5. PlutoSDR
     public class PlutoSDR : IDisposable
     {
         private IntPtr ctx, phy, rx, rx_channel, buffer;
@@ -244,69 +255,6 @@ namespace FPV_Hunter_FULL
         public void Dispose() { Disconnect(); }
     }
 
-    // 6. VideoDecoder
-    public class VideoDecoder : IDisposable
-    {
-        private VideoWriter writer;
-        private bool isRecording;
-        public VideoDecoder() { isRecording = false; }
-        public void StartRecording(string path, int fps, int width, int height) { try { writer = new VideoWriter(path, FourCC.Default, fps, new OpenCvSharp.Size(width, height)); isRecording = true; } catch { } }
-        public void StopRecording() { if (writer != null && writer.IsOpened()) { writer.Release(); writer.Dispose(); writer = null; } isRecording = false; }
-        public bool IsRecording => isRecording;
-        public bool DecodeFrame(float[] iqData, out Mat frame)
-        {
-            frame = null;
-            try
-            {
-                if (iqData == null || iqData.Length < 100) return false;
-                int width = 320, height = 240;
-                frame = new Mat(height, width, MatType.CV_8UC3);
-                for (int y = 0; y < height; y++)
-                {
-                    for (int x = 0; x < width; x++)
-                    {
-                        int idx = (y * width + x) % iqData.Length;
-                        double amplitude = iqData[idx];
-                        double phase = Math.Atan2(iqData[(idx + 1) % iqData.Length], amplitude);
-                        byte r = (byte)((amplitude + 1) * 127);
-                        byte g = (byte)((Math.Sin(phase) + 1) * 127);
-                        byte b = (byte)((Math.Cos(phase) + 1) * 127);
-                        frame.Set(y, x, new Vec3b(r, g, b));
-                    }
-                }
-                if (isRecording && writer != null && writer.IsOpened()) writer.Write(frame);
-                return true;
-            }
-            catch { return false; }
-        }
-        public Bitmap MatToBitmap(Mat mat)
-        {
-            if (mat == null || mat.Empty()) return null;
-            try
-            {
-                int width = mat.Width, height = mat.Height;
-                Bitmap bmp = new Bitmap(width, height, PixelFormat.Format24bppRgb);
-                BitmapData bmpData = bmp.LockBits(new Rectangle(0, 0, width, height), ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
-                IntPtr ptr = bmpData.Scan0;
-                for (int y = 0; y < height; y++)
-                {
-                    for (int x = 0; x < width; x++)
-                    {
-                        Vec3b pixel = mat.Get<Vec3b>(y, x);
-                        Marshal.WriteByte(ptr, (y * width + x) * 3, pixel.Item2);
-                        Marshal.WriteByte(ptr, (y * width + x) * 3 + 1, pixel.Item1);
-                        Marshal.WriteByte(ptr, (y * width + x) * 3 + 2, pixel.Item0);
-                    }
-                }
-                bmp.UnlockBits(bmpData);
-                return bmp;
-            }
-            catch { return null; }
-        }
-        public void Dispose() { StopRecording(); }
-    }
-
-    // 7. MainForm
     public class MainForm : Form
     {
         private PlutoSDR pluto = new PlutoSDR();
@@ -314,6 +262,9 @@ namespace FPV_Hunter_FULL
         private List<SignalInfo> signals = new List<SignalInfo>();
         private System.Windows.Forms.Timer scanTimer;
         private Label statusLabel;
+        private Label signalCountLabel;
+        private ListBox signalList;
+        private Random rand = new Random();
 
         public MainForm()
         {
@@ -325,56 +276,210 @@ namespace FPV_Hunter_FULL
 
             db = new Database();
             pluto.OnStatusUpdate += (msg) => UpdateStatus(msg);
-            pluto.Connect();
-
-            var label = new Label
+            
+            // Пытаемся подключиться к Pluto
+            if (!pluto.Connect("192.168.2.1"))
             {
-                Text = "FPV Hunter Pro v8.0\nReady",
-                Font = new Font("Segoe UI", 24),
-                ForeColor = Color.White,
-                Dock = DockStyle.Fill,
-                TextAlign = ContentAlignment.MiddleCenter
-            };
-            Controls.Add(label);
+                UpdateStatus("Pluto+ не найден! Демо-режим.");
+            }
 
+            InitUI();
+            InitTimers();
+        }
+
+        private void InitUI()
+        {
+            // Заголовок
+            var title = new Label
+            {
+                Text = "FPV HUNTER PRO v8.0",
+                Font = new Font("Segoe UI", 24, FontStyle.Bold),
+                ForeColor = Color.FromArgb(230, 126, 34),
+                Location = new Point(20, 20),
+                Size = new Size(500, 50)
+            };
+            Controls.Add(title);
+
+            // Статус
             statusLabel = new Label
             {
                 Text = "Status: Ready",
-                Dock = DockStyle.Bottom,
+                Font = new Font("Segoe UI", 12),
                 ForeColor = Color.LightGray,
-                Height = 30
+                Location = new Point(20, 80),
+                Size = new Size(600, 30)
             };
             Controls.Add(statusLabel);
 
+            // Список сигналов
+            signalList = new ListBox
+            {
+                Location = new Point(20, 120),
+                Size = new Size(400, 400),
+                BackColor = Color.FromArgb(20, 20, 40),
+                ForeColor = Color.White,
+                Font = new Font("Consolas", 10)
+            };
+            Controls.Add(signalList);
+
+            // Счетчик сигналов
+            signalCountLabel = new Label
+            {
+                Text = "Signals: 0",
+                Font = new Font("Segoe UI", 10),
+                ForeColor = Color.Gray,
+                Location = new Point(20, 530),
+                Size = new Size(200, 25)
+            };
+            Controls.Add(signalCountLabel);
+
+            // Кнопка очистки
+            var clearBtn = new Button
+            {
+                Text = "Clear",
+                Font = new Font("Segoe UI", 10),
+                BackColor = Color.FromArgb(50, 50, 50),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Location = new Point(300, 530),
+                Size = new Size(100, 30)
+            };
+            clearBtn.Click += (s, e) => { signals.Clear(); UpdateSignalList(); };
+            Controls.Add(clearBtn);
+
+            // Кнопка выхода
+            var exitBtn = new Button
+            {
+                Text = "Exit",
+                Font = new Font("Segoe UI", 10),
+                BackColor = Color.FromArgb(50, 30, 30),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Location = new Point(410, 530),
+                Size = new Size(100, 30)
+            };
+            exitBtn.Click += (s, e) => Application.Exit();
+            Controls.Add(exitBtn);
+        }
+
+        private void InitTimers()
+        {
             scanTimer = new System.Windows.Forms.Timer { Interval = 1000 };
             scanTimer.Tick += (s, e) =>
             {
                 if (pluto.IsConnected)
                 {
                     var samples = pluto.ReceiveSamples(256);
-                    if (samples != null)
+                    if (samples != null && samples.Length > 0)
                     {
                         double power = 10 * Math.Log10(samples.Average() + 1e-12);
-                        signals.Add(new SignalInfo
+                        double rssi = pluto.GetRSSI();
+                        double freq = pluto.Frequency;
+
+                        // Детекция сигнала
+                        if (power > -40)
                         {
-                            Frequency = 100e6,
-                            Power = power,
-                            Type = "Signal",
-                            FirstSeen = DateTime.Now,
-                            LastSeen = DateTime.Now
-                        });
-                        UpdateStatus($"Signal: {power:F1} dB");
+                            string type = "Unknown";
+                            bool hasVideo = false;
+                            
+                            if (freq >= 5700e6 && freq <= 5900e6)
+                            {
+                                type = "FPV Video";
+                                hasVideo = true;
+                            }
+                            else if (freq >= 2400e6 && freq <= 2483e6)
+                            {
+                                type = "RC Control";
+                            }
+                            else if (freq >= 900e6 && freq <= 930e6)
+                            {
+                                type = "RC 900MHz";
+                            }
+
+                            var existing = signals.FirstOrDefault(x => Math.Abs(x.Frequency - freq) < 1e6);
+                            if (existing != null)
+                            {
+                                existing.Power = power;
+                                existing.LastSeen = DateTime.Now;
+                                existing.Count++;
+                            }
+                            else
+                            {
+                                var signal = new SignalInfo
+                                {
+                                    Frequency = freq,
+                                    Power = power,
+                                    Type = type,
+                                    HasVideo = hasVideo,
+                                    Modulation = "FM",
+                                    Standard = "PAL",
+                                    FirstSeen = DateTime.Now,
+                                    LastSeen = DateTime.Now,
+                                    Count = 1,
+                                    Details = $"RSSI: {rssi:F1} dB"
+                                };
+                                signals.Add(signal);
+                                db.AddIntercept(freq, power, type, "FM", "PAL", 4e6, hasVideo, signal.Details);
+                            }
+                            UpdateSignalList();
+                        }
                     }
                 }
+                else
+                {
+                    // Демо-режим
+                    if (rand.Next(10) < 2)
+                    {
+                        double freq = 100 + rand.Next(5900);
+                        double power = -30 - rand.Next(20);
+                        string type = freq > 5700 && freq < 5900 ? "FPV Video" : "Unknown";
+                        bool hasVideo = freq > 5700 && freq < 5900;
+
+                        var signal = new SignalInfo
+                        {
+                            Frequency = freq * 1e6,
+                            Power = power,
+                            Type = type,
+                            HasVideo = hasVideo,
+                            Modulation = "FM",
+                            Standard = "PAL",
+                            FirstSeen = DateTime.Now,
+                            LastSeen = DateTime.Now,
+                            Count = 1
+                        };
+                        signals.Add(signal);
+                        db.AddIntercept(freq * 1e6, power, type, "FM", "PAL", 4e6, hasVideo, "Demo mode");
+                        UpdateSignalList();
+                        UpdateStatus($"Signal found at {freq:F0} MHz, {power:F1} dB");
+                    }
+                }
+
+                UpdateSignalCount();
             };
             scanTimer.Start();
         }
 
-        private void UpdateStatus(string msg)
+        private void UpdateSignalList()
+        {
+            signalList.Items.Clear();
+            foreach (var s in signals.OrderBy(x => x.Frequency))
+            {
+                string icon = s.HasVideo ? "📹" : "📡";
+                string text = $"{icon} {(s.Frequency/1e6):F1} MHz | {s.Type} | {s.Power:F1} dB";
+                signalList.Items.Add(text);
+            }
+        }
+
+        private void UpdateSignalCount()
+        {
+            signalCountLabel.Text = $"Signals: {signals.Count}";
+        }
+
+        private void UpdateStatus(string text)
         {
             if (statusLabel != null && !statusLabel.IsDisposed)
             {
-                statusLabel.Text = "Status: " + msg;
+                statusLabel.Text = "Status: " + text;
             }
         }
 
@@ -386,7 +491,6 @@ namespace FPV_Hunter_FULL
         }
     }
 
-    // 8. Program
     public class Program
     {
         [STAThread]
@@ -402,7 +506,7 @@ namespace FPV_Hunter_FULL
             catch (Exception ex)
             {
                 MessageBox.Show($"Error: {ex.Message}\n\n{ex.StackTrace}", "FPV Hunter Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                File.WriteAllText("fatal_error.log", $"{DateTime.Now}: {ex}");
+                File.WriteAllText("error.log", $"{DateTime.Now}: {ex}");
             }
         }
     }
