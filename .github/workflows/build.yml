@@ -39,10 +39,31 @@ jobs:
           7z x ffmpeg.7z -y
           cp ffmpeg-*/bin/*.dll publish/ 2>nul || echo "FFmpeg DLLs copied"
 
-      - name: Check DLLs
+      - name: Check all DLLs
         run: |
-          echo "=== CHECKING DLLs ==="
-          dir publish\*.dll
+          echo "========================================"
+          echo "     CHECKING ALL DLLs"
+          echo "========================================"
+          echo ""
+          echo "📁 Files in publish folder:"
+          dir publish\*.exe publish\*.dll
+          echo ""
+          echo "🔍 Checking required DLLs:"
+          echo "----------------------------------------"
+          if exist publish\libiio.dll (echo ✅ libiio.dll - OK) else (echo ❌ libiio.dll - MISSING)
+          if exist publish\OpenCvSharpExtern.dll (echo ✅ OpenCvSharpExtern.dll - OK) else (echo ❌ OpenCvSharpExtern.dll - MISSING)
+          if exist publish\avcodec-58.dll (echo ✅ avcodec-58.dll - OK) else (echo ❌ avcodec-58.dll - MISSING)
+          if exist publish\avformat-58.dll (echo ✅ avformat-58.dll - OK) else (echo ❌ avformat-58.dll - MISSING)
+          if exist publish\avutil-56.dll (echo ✅ avutil-56.dll - OK) else (echo ❌ avutil-56.dll - MISSING)
+          if exist publish\swscale-5.dll (echo ✅ swscale-5.dll - OK) else (echo ❌ swscale-5.dll - MISSING)
+          echo "----------------------------------------"
+          echo ""
+          echo "📊 File sizes:"
+          dir publish\*.dll | findstr "libiio OpenCvSharpExtern avcodec avformat avutil swscale"
+          echo ""
+          echo "========================================"
+          echo "✅ ALL CHECKS COMPLETED"
+          echo "========================================"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
