@@ -9,6 +9,13 @@ using System.Speech.Synthesis;
 using System.Threading;
 using System.Windows.Forms;
 using System.Data.SQLite;
+
+// ============================================================
+// ЯВНО УКАЗЫВАЕМ, ЧТО Point И Size БЕРЁМ ИЗ System.Drawing
+// ============================================================
+using Point = System.Drawing.Point;
+using Size = System.Drawing.Size;
+
 using OpenCvSharp;
 
 namespace FPV_Hunter_FULL
@@ -163,7 +170,7 @@ namespace FPV_Hunter_FULL
     }
 
     // ============================================================
-    // 3. СТРУКТУРЫ ДАННЫХ
+    // 3. СТРУКТУРЫ
     // ============================================================
     public class SignalInfo
     {
