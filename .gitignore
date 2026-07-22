@@ -1,0 +1,10 @@
+bin/
+obj/
+*.exe
+*.dll
+*.pdb
+*.db
+*.log
+*.tmp
+.vs/
+.vscode/
