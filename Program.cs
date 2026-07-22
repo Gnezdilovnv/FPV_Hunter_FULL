@@ -177,7 +177,7 @@ namespace FPV_Hunter_FULL
         public DateTime FirstSeen { get; set; }
         public DateTime LastSeen { get; set; }
         public int Count { get; set; }
-        public Mat VideoFrame { get; set; }
+        public OpenCvSharp.Mat VideoFrame { get; set; }
         public string Details { get; set; }
     }
 
@@ -339,7 +339,7 @@ namespace FPV_Hunter_FULL
 
         public bool IsRecording => isRecording;
 
-        public bool DecodeFrame(float[] iqData, out Mat frame)
+        public bool DecodeFrame(float[] iqData, out OpenCvSharp.Mat frame)
         {
             frame = null;
             try
@@ -349,7 +349,7 @@ namespace FPV_Hunter_FULL
                 // Реальное декодирование PAL/NTSC через OpenCV
                 int width = 320;
                 int height = 240;
-                frame = new Mat(height, width, MatType.CV_8UC3);
+                frame = new OpenCvSharp.Mat(height, width, MatType.CV_8UC3);
                 
                 for (int y = 0; y < height; y++)
                 {
@@ -381,9 +381,9 @@ namespace FPV_Hunter_FULL
             }
         }
 
-        public Mat DecodeFrame(float[] iqData)
+        public OpenCvSharp.Mat DecodeFrame(float[] iqData)
         {
-            Mat frame;
+            OpenCvSharp.Mat frame;
             DecodeFrame(iqData, out frame);
             return frame;
         }
@@ -968,12 +968,18 @@ namespace FPV_Hunter_FULL
 
                             if (isVideo)
                             {
-                                Mat frame;
+                                OpenCvSharp.Mat frame;
                                 if (decoder.DecodeFrame(samples, out frame))
                                 {
-                                    using (var bitmap = OpenCvSharp.Extensions.BitmapConverter.ToBitmap(frame))
+                                    try
                                     {
+                                        var bitmap = OpenCvSharp.Extensions.BitmapConverter.ToBitmap(frame);
                                         videoBox.Image = new Bitmap(bitmap);
+                                        bitmap.Dispose();
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Console.WriteLine($"Ошибка конвертации кадра: {ex.Message}");
                                     }
                                     frame.Dispose();
                                 }

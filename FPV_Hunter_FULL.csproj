@@ -14,7 +14,8 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="System.Data.SQLite" Version="1.0.118" />
-    <PackageReference Include="OpenCvSharp4.Windows" Version="4.13.0.20260627" />
+    <PackageReference Include="OpenCvSharp4.Windows" Version="4.10.0.20241108" />
+    <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.10.0.20241108" />
     <PackageReference Include="System.Speech" Version="8.0.0" />
     <PackageReference Include="FFMpegCore" Version="5.1.0" />
   </ItemGroup>
