@@ -10,8 +10,12 @@ using System.Threading;
 using System.Windows.Forms;
 using System.Data.SQLite;
 
+// ============================================================
+// ЯВНО УКАЗЫВАЕМ, ЧТО Point И Size БЕРЁМ ИЗ System.Drawing
+// ============================================================
 using Point = System.Drawing.Point;
 using Size = System.Drawing.Size;
+
 using OpenCvSharp;
 
 namespace FPV_Hunter_FULL
@@ -221,63 +225,16 @@ namespace FPV_Hunter_FULL
     }
 
     // ============================================================
-    // 4. БАЗА ДАННЫХ (SQLite) - ИСПРАВЛЕНА
+    // 4. БАЗА ДАННЫХ (SQLite)
     // ============================================================
     public class Database
     {
         private string connectionString;
-        private bool isInitialized = false;
-
-        public Database(string path = null)
+        public Database(string path)
         {
-            try
-            {
-                if (string.IsNullOrEmpty(path))
-                {
-                    path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data");
-                }
-
-                if (!Directory.Exists(path))
-                {
-                    Directory.CreateDirectory(path);
-                }
-
-                string dbPath = Path.Combine(path, "history.db");
-                connectionString = $"Data Source={dbPath};Version=3;";
-                CreateTable();
-                isInitialized = true;
-                Console.WriteLine($"✅ БД инициализирована: {dbPath}");
-            }
-            catch (Exception ex)
-            {
-                try
-                {
-                    string fallbackPath = Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                        "FPV_Captures",
-                        "история"
-                    );
-                    
-                    if (!Directory.Exists(fallbackPath))
-                        Directory.CreateDirectory(fallbackPath);
-
-                    string dbPath = Path.Combine(fallbackPath, "history.db");
-                    connectionString = $"Data Source={dbPath};Version=3;";
-                    CreateTable();
-                    isInitialized = true;
-
-                    File.WriteAllText("db_init.log", 
-                        $"{DateTime.Now}: БД создана в {dbPath}\n");
-                }
-                catch (Exception ex2)
-                {
-                    File.WriteAllText("db_error.log", 
-                        $"{DateTime.Now}: Ошибка: {ex}\n{ex2}\n");
-                    isInitialized = false;
-                }
-            }
+            connectionString = $"Data Source={path}\\history.db;Version=3;";
+            CreateTable();
         }
-
         private void CreateTable()
         {
             using (var conn = new SQLiteConnection(connectionString))
@@ -295,110 +252,49 @@ namespace FPV_Hunter_FULL
                     has_video INTEGER,
                     details TEXT
                 )";
+                using (var cmd = new SQLiteCommand(sql, conn)) cmd.ExecuteNonQuery();
+            }
+        }
+        public void AddIntercept(double freq, double power, string type, string modulation, string standard, double bandwidth, bool hasVideo, string details = "")
+        {
+            using (var conn = new SQLiteConnection(connectionString))
+            {
+                conn.Open();
+                string sql = @"INSERT INTO intercepts (timestamp, frequency, power, type, modulation, standard, bandwidth, has_video, details)
+                              VALUES (@time, @freq, @power, @type, @mod, @std, @bw, @video, @details)";
                 using (var cmd = new SQLiteCommand(sql, conn))
                 {
+                    cmd.Parameters.AddWithValue("@time", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    cmd.Parameters.AddWithValue("@freq", freq);
+                    cmd.Parameters.AddWithValue("@power", power);
+                    cmd.Parameters.AddWithValue("@type", type);
+                    cmd.Parameters.AddWithValue("@mod", modulation);
+                    cmd.Parameters.AddWithValue("@std", standard);
+                    cmd.Parameters.AddWithValue("@bw", bandwidth);
+                    cmd.Parameters.AddWithValue("@video", hasVideo ? 1 : 0);
+                    cmd.Parameters.AddWithValue("@details", details);
                     cmd.ExecuteNonQuery();
                 }
             }
         }
-
-        public void AddIntercept(double freq, double power, string type, 
-            string modulation, string standard, double bandwidth, 
-            bool hasVideo, string details = "")
-        {
-            if (!isInitialized) return;
-
-            try
-            {
-                using (var conn = new SQLiteConnection(connectionString))
-                {
-                    conn.Open();
-                    string sql = @"INSERT INTO intercepts 
-                        (timestamp, frequency, power, type, modulation, standard, bandwidth, has_video, details)
-                        VALUES (@time, @freq, @power, @type, @mod, @std, @bw, @video, @details)";
-                    using (var cmd = new SQLiteCommand(sql, conn))
-                    {
-                        cmd.Parameters.AddWithValue("@time", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
-                        cmd.Parameters.AddWithValue("@freq", freq);
-                        cmd.Parameters.AddWithValue("@power", power);
-                        cmd.Parameters.AddWithValue("@type", type);
-                        cmd.Parameters.AddWithValue("@mod", modulation);
-                        cmd.Parameters.AddWithValue("@std", standard);
-                        cmd.Parameters.AddWithValue("@bw", bandwidth);
-                        cmd.Parameters.AddWithValue("@video", hasVideo ? 1 : 0);
-                        cmd.Parameters.AddWithValue("@details", details);
-                        cmd.ExecuteNonQuery();
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                File.AppendAllText("db_error.log", 
-                    $"{DateTime.Now}: Ошибка AddIntercept: {ex.Message}\n");
-            }
-        }
-
         public List<SignalInfo> GetHistory(int limit = 100)
         {
             var result = new List<SignalInfo>();
-            if (!isInitialized) return result;
-
-            try
+            using (var conn = new SQLiteConnection(connectionString))
             {
-                using (var conn = new SQLiteConnection(connectionString))
-                {
-                    conn.Open();
-                    string sql = "SELECT * FROM intercepts ORDER BY id DESC LIMIT @limit";
-                    using (var cmd = new SQLiteCommand(sql, conn))
-                    {
-                        cmd.Parameters.AddWithValue("@limit", limit);
-                        using (var reader = cmd.ExecuteReader())
-                        {
-                            while (reader.Read())
-                            {
-                                result.Add(new SignalInfo
-                                {
-                                    Frequency = reader.GetDouble(2),
-                                    Power = reader.GetDouble(3),
-                                    Type = reader.GetString(4),
-                                    Modulation = reader.IsDBNull(5) ? "FM" : reader.GetString(5),
-                                    Standard = reader.IsDBNull(6) ? "PAL" : reader.GetString(6),
-                                    Bandwidth = reader.GetDouble(7),
-                                    HasVideo = reader.GetInt32(8) == 1,
-                                    Details = reader.IsDBNull(9) ? "" : reader.GetString(9),
-                                    FirstSeen = DateTime.Parse(reader.GetString(1))
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                File.AppendAllText("db_error.log", 
-                    $"{DateTime.Now}: Ошибка GetHistory: {ex.Message}\n");
+                conn.Open();
+                string sql = "SELECT * FROM intercepts ORDER BY id DESC LIMIT @limit";
+                using (var cmd = new SQLiteCommand(sql, conn)) { cmd.Parameters.AddWithValue("@limit", limit); using (var reader = cmd.ExecuteReader()) { while (reader.Read()) { result.Add(new SignalInfo { Frequency = reader.GetDouble(2), Power = reader.GetDouble(3), Type = reader.GetString(4), Modulation = reader.GetString(5), Standard = reader.GetString(6), Bandwidth = reader.GetDouble(7), HasVideo = reader.GetInt32(8) == 1, Details = reader.GetString(9), FirstSeen = DateTime.Parse(reader.GetString(1)) }); } } }
             }
             return result;
         }
-
         public void ClearHistory()
         {
-            if (!isInitialized) return;
-
-            try
+            using (var conn = new SQLiteConnection(connectionString))
             {
-                using (var conn = new SQLiteConnection(connectionString))
-                {
-                    conn.Open();
-                    string sql = "DELETE FROM intercepts";
-                    using (var cmd = new SQLiteCommand(sql, conn))
-                        cmd.ExecuteNonQuery();
-                }
-            }
-            catch (Exception ex)
-            {
-                File.AppendAllText("db_error.log", 
-                    $"{DateTime.Now}: Ошибка ClearHistory: {ex.Message}\n");
+                conn.Open();
+                string sql = "DELETE FROM intercepts";
+                using (var cmd = new SQLiteCommand(sql, conn)) cmd.ExecuteNonQuery();
             }
         }
     }
@@ -668,77 +564,38 @@ namespace FPV_Hunter_FULL
 
         public MainForm()
         {
-            try
+            Text = "🎯 FPV HUNTER PRO v8.0 - FULL";
+            Size = new Size(1400, 900);
+            BackColor = Color.FromArgb(10, 10, 30);
+            ForeColor = Color.White;
+            StartPosition = FormStartPosition.CenterScreen;
+            FormBorderStyle = FormBorderStyle.FixedSingle;
+            MaximizeBox = true;
+
+            Directory.CreateDirectory(settings.SavePath);
+            foreach (var d in new[] { "видео", "снимки", "отчеты", "iq_samples", "история" })
+                Directory.CreateDirectory(settings.SavePath + "\\" + d);
+
+            db = new Database(settings.SavePath + "\\история");
+            pluto.OnStatusUpdate += (msg) => UpdateStatus(msg);
+
+            if (!pluto.Connect("192.168.2.1"))
             {
-                Text = "🎯 FPV HUNTER PRO v8.0 - FULL";
-                Size = new Size(1400, 900);
-                BackColor = Color.FromArgb(10, 10, 30);
-                ForeColor = Color.White;
-                StartPosition = FormStartPosition.CenterScreen;
-                FormBorderStyle = FormBorderStyle.FixedSingle;
-                MaximizeBox = true;
-
-                // Инициализация путей с проверкой
-                string appDir = AppDomain.CurrentDomain.BaseDirectory;
-                string dataDir = Path.Combine(appDir, "data");
-                string docsDir = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                    "FPV_Captures"
-                );
-
-                // Создаем все нужные папки
-                foreach (var dir in new[] { dataDir, docsDir, 
-                    Path.Combine(docsDir, "видео"),
-                    Path.Combine(docsDir, "снимки"),
-                    Path.Combine(docsDir, "отчеты"),
-                    Path.Combine(docsDir, "iq_samples"),
-                    Path.Combine(docsDir, "история")
-                })
-                {
-                    if (!Directory.Exists(dir))
-                        Directory.CreateDirectory(dir);
-                }
-
-                // Инициализация БД с обработкой ошибок
-                try
-                {
-                    db = new Database(dataDir);
-                }
-                catch (Exception ex)
-                {
-                    File.WriteAllText("db_init_error.log", $"{DateTime.Now}: {ex}");
-                    // Создаем БД в Documents если не получилось
-                    db = new Database(Path.Combine(docsDir, "история"));
-                }
-
-                pluto.OnStatusUpdate += (msg) => UpdateStatus(msg);
-
-                if (!pluto.Connect("192.168.2.1"))
-                {
-                    MessageBox.Show("Pluto+ не найден!\nРабота в демо-режиме.", "Предупреждение", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                }
-                else
-                {
-                    pluto.SetSampleRate(settings.Bandwidth);
-                    pluto.SetGain(settings.Gain);
-                    pluto.SetAGC(settings.AGC);
-                    pluto.SetBandwidth(settings.Bandwidth);
-                }
-
-                InitUI();
-                InitTimers();
-                UpdateStatus("✅ Готов к работе");
-                UpdatePlutoStatus(pluto.IsConnected ? $"🟢 Pluto: {pluto.Serial}" : "🔴 Pluto: не подключен");
-                LoadHistory();
+                MessageBox.Show("Pluto+ не найден!\nРабота в демо-режиме.", "Предупреждение", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
-            catch (Exception ex)
+            else
             {
-                MessageBox.Show($"Ошибка инициализации:\n{ex.Message}\n\n{ex.StackTrace}", 
-                               "FPV Hunter Error", 
-                               MessageBoxButtons.OK, 
-                               MessageBoxIcon.Error);
-                File.WriteAllText("init_error.log", $"{DateTime.Now}: {ex}");
+                pluto.SetSampleRate(settings.Bandwidth);
+                pluto.SetGain(settings.Gain);
+                pluto.SetAGC(settings.AGC);
+                pluto.SetBandwidth(settings.Bandwidth);
             }
+
+            InitUI();
+            InitTimers();
+            UpdateStatus("✅ Готов к работе");
+            UpdatePlutoStatus(pluto.IsConnected ? $"🟢 Pluto: {pluto.Serial}" : "🔴 Pluto: не подключен");
+            LoadHistory();
         }
 
         private void InitUI()
@@ -1273,23 +1130,19 @@ namespace FPV_Hunter_FULL
         private void LoadHistory()
         {
             if (historyGrid == null) return;
-            try
+            var history = db.GetHistory(100);
+            historyGrid.Rows.Clear();
+            foreach (var h in history)
             {
-                var history = db.GetHistory(100);
-                historyGrid.Rows.Clear();
-                foreach (var h in history)
-                {
-                    historyGrid.Rows.Add(
-                        h.FirstSeen.ToString("HH:mm:ss"),
-                        (h.Frequency / 1e6).ToString("F1") + " МГц",
-                        h.Power.ToString("F1") + " dBFS",
-                        h.Type,
-                        h.Modulation,
-                        h.Standard
-                    );
-                }
+                historyGrid.Rows.Add(
+                    h.FirstSeen.ToString("HH:mm:ss"),
+                    (h.Frequency / 1e6).ToString("F1") + " МГц",
+                    h.Power.ToString("F1") + " dBFS",
+                    h.Type,
+                    h.Modulation,
+                    h.Standard
+                );
             }
-            catch { }
         }
 
         private void ToggleRecording()
@@ -1326,17 +1179,10 @@ namespace FPV_Hunter_FULL
         {
             if (videoBox.Image != null)
             {
-                try
-                {
-                    string file = settings.SavePath + "\\снимки\\snapshot_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".png";
-                    videoBox.Image.Save(file, ImageFormat.Png);
-                    UpdateStatus($"💾 Снимок сохранён: {file}");
-                    if (settings.VoiceAlerts) voice.Say("Снимок сохранён");
-                }
-                catch (Exception ex)
-                {
-                    UpdateStatus($"⚠️ Ошибка сохранения: {ex.Message}");
-                }
+                string file = settings.SavePath + "\\снимки\\snapshot_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".png";
+                videoBox.Image.Save(file, ImageFormat.Png);
+                UpdateStatus($"💾 Снимок сохранён: {file}");
+                if (settings.VoiceAlerts) voice.Say("Снимок сохранён");
             }
             else
             {
@@ -1400,33 +1246,9 @@ namespace FPV_Hunter_FULL
         [STAThread]
         static void Main()
         {
-            try
-            {
-                // Устанавливаем текущую директорию
-                Directory.SetCurrentDirectory(AppDomain.CurrentDomain.BaseDirectory);
-                
-                // Создаем папку для данных
-                string dataDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data");
-                if (!Directory.Exists(dataDir))
-                    Directory.CreateDirectory(dataDir);
-                    
-                Application.EnableVisualStyles();
-                Application.SetCompatibleTextRenderingDefault(false);
-                Application.Run(new MainForm());
-            }
-            catch (Exception ex)
-            {
-                string errorMsg = $"Критическая ошибка:\n{ex.Message}\n\nStackTrace:\n{ex.StackTrace}";
-                MessageBox.Show(errorMsg, "FPV Hunter Error", 
-                               MessageBoxButtons.OK, MessageBoxIcon.Error);
-                
-                try
-                {
-                    File.WriteAllText("fatal_error.log", 
-                        $"{DateTime.Now}: FATAL ERROR\n{ex}");
-                }
-                catch { }
-            }
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            Application.Run(new MainForm());
         }
     }
 }
