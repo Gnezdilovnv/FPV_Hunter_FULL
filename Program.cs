@@ -185,6 +185,7 @@ namespace FPV_Hunter_FULL
         private IntPtr ctx, phy, rx, rx_channel, buffer;
         private bool connected;
         private double sampleRate = 4e6;
+        private double frequency = 100e6;
         public string Serial { get; private set; } = "Unknown";
         public string ChipModel { get; private set; } = "Unknown";
         public event Action<string> OnStatusUpdate;
