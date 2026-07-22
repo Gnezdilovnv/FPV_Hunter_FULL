@@ -101,16 +101,16 @@ namespace FPV_Hunter_FULL
         private string GetFirmware()
         {
             if (phy == IntPtr.Zero) return "Неизвестно";
-            byte[] buf = new byte[256];
-            int ret = libiio.iio_device_attr_read_double(phy, "fw_version", out double val);
+            double val = 0;
+            int ret = libiio.iio_device_attr_read_double(phy, "fw_version", out val);
             return ret >= 0 ? val.ToString() : "Неизвестно";
         }
 
         private string GetChipModel()
         {
             if (phy == IntPtr.Zero) return "Неизвестно";
-            byte[] buf = new byte[256];
-            int ret = libiio.iio_device_attr_read_double(phy, "model", out double val);
+            double val = 0;
+            int ret = libiio.iio_device_attr_read_double(phy, "model", out val);
             return ret >= 0 ? val.ToString() : "Неизвестно";
         }
 
@@ -346,7 +346,6 @@ namespace FPV_Hunter_FULL
             {
                 if (iqData == null || iqData.Length < 100) return false;
 
-                // Реальное декодирование PAL/NTSC через OpenCV
                 int width = 320;
                 int height = 240;
                 frame = new OpenCvSharp.Mat(height, width, MatType.CV_8UC3);
@@ -973,14 +972,12 @@ namespace FPV_Hunter_FULL
                                 {
                                     try
                                     {
-                                        var bitmap = OpenCvSharp.Extensions.BitmapConverter.ToBitmap(frame);
-                                        videoBox.Image = new Bitmap(bitmap);
-                                        bitmap.Dispose();
+                                        using (var bitmap = OpenCvSharp.Extensions.BitmapConverter.ToBitmap(frame))
+                                        {
+                                            videoBox.Image = new Bitmap(bitmap);
+                                        }
                                     }
-                                    catch (Exception ex)
-                                    {
-                                        Console.WriteLine($"Ошибка конвертации кадра: {ex.Message}");
-                                    }
+                                    catch { }
                                     frame.Dispose();
                                 }
                                 if (settings.AutoRecord && power > settings.RecordThreshold && !isRecording)
