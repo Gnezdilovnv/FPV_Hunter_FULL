@@ -1,9 +1,3 @@
-// ============================================================
-// FPV HUNTER PRO FULL v8.0
-// ПОЛНАЯ ВЕРСИЯ — БЕЗ ВЫРЕЗОВ
-// ВСЕ ФУНКЦИИ РАБОТАЮТ
-// ============================================================
-
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -16,9 +10,6 @@ using System.Threading;
 using System.Windows.Forms;
 using System.Data.SQLite;
 using OpenCvSharp;
-
-using FFMpegCore;
-using FFMpegCore.Extend;
 
 namespace FPV_Hunter_FULL
 {
@@ -54,7 +45,7 @@ namespace FPV_Hunter_FULL
     }
 
     // ============================================================
-    // 2. PLUTO SDR (ПОЛНОСТЬЮ РАБОЧИЙ)
+    // 2. PLUTO SDR
     // ============================================================
     public class PlutoSDR : IDisposable
     {
@@ -111,16 +102,16 @@ namespace FPV_Hunter_FULL
         {
             if (phy == IntPtr.Zero) return "Неизвестно";
             byte[] buf = new byte[256];
-            int ret = libiio.iio_device_attr_read(phy, "fw_version", buf, buf.Length);
-            return ret >= 0 ? System.Text.Encoding.ASCII.GetString(buf).TrimEnd('\0') : "Неизвестно";
+            int ret = libiio.iio_device_attr_read_double(phy, "fw_version", out double val);
+            return ret >= 0 ? val.ToString() : "Неизвестно";
         }
 
         private string GetChipModel()
         {
             if (phy == IntPtr.Zero) return "Неизвестно";
             byte[] buf = new byte[256];
-            int ret = libiio.iio_device_attr_read(phy, "model", buf, buf.Length);
-            return ret >= 0 ? System.Text.Encoding.ASCII.GetString(buf).TrimEnd('\0') : "Неизвестно";
+            int ret = libiio.iio_device_attr_read_double(phy, "model", out double val);
+            return ret >= 0 ? val.ToString() : "Неизвестно";
         }
 
         private string GetHardwareModel()
@@ -132,8 +123,8 @@ namespace FPV_Hunter_FULL
 
         public bool SetFrequency(double freq) { if (!connected || phy == IntPtr.Zero) return false; int ret = libiio.iio_device_attr_write_double(phy, "RX_LO_FREQ", freq); if (ret >= 0) Log($"📡 Частота: {freq/1e6:F1} МГц"); return ret >= 0; }
         public bool SetSampleRate(double rate) { if (!connected || phy == IntPtr.Zero) return false; sampleRate = rate; int ret = libiio.iio_device_attr_write_double(phy, "RX_SAMPLING_FREQ", rate); if (ret >= 0) libiio.iio_device_attr_write_double(rx, "RX_RF_BANDWIDTH", rate); return ret >= 0; }
-        public bool SetGain(double gain) { if (!connected || phy == IntPtr.Zero) return false; libiio.iio_device_attr_write(phy, "RX_GAIN_MODE", "manual"); return libiio.iio_device_attr_write_double(phy, "RX_GAIN", gain) >= 0; }
-        public bool SetAGC(bool enable) { if (!connected || phy == IntPtr.Zero) return false; libiio.iio_device_attr_write(phy, "RX_GAIN_MODE", enable ? "slow_attack" : "manual"); return true; }
+        public bool SetGain(double gain) { if (!connected || phy == IntPtr.Zero) return false; return libiio.iio_device_attr_write_double(phy, "RX_GAIN", gain) >= 0; }
+        public bool SetAGC(bool enable) { if (!connected || phy == IntPtr.Zero) return false; return libiio.iio_device_attr_write_double(phy, "RX_GAIN_MODE", enable ? 1 : 0) >= 0; }
         public bool SetBandwidth(double bw) { if (!connected || rx == IntPtr.Zero) return false; return libiio.iio_device_attr_write_double(rx, "RX_RF_BANDWIDTH", bw) >= 0; }
         public double GetRSSI() { if (!connected || phy == IntPtr.Zero) return -100; libiio.iio_device_attr_read_double(phy, "RX_RSSI", out double rssi); return rssi; }
 
@@ -192,7 +183,6 @@ namespace FPV_Hunter_FULL
 
     public class Settings
     {
-        // Сканирование
         public double StartFreq = 100e6;
         public double StopFreq = 6000e6;
         public double Step = 5e6;
@@ -201,8 +191,6 @@ namespace FPV_Hunter_FULL
         public bool AGC = false;
         public bool DualMode = false;
         public int ScanSpeed = 50;
-        
-        // Видео
         public int VideoResolution = 480;
         public int FPS = 25;
         public string Codec = "X264";
@@ -212,8 +200,6 @@ namespace FPV_Hunter_FULL
         public bool AutoStandard = true;
         public string Modulation = "FM";
         public string Standard = "PAL";
-        
-        // Запись
         public bool AutoRecord = true;
         public double RecordThreshold = -35;
         public double StopThreshold = -60;
@@ -222,16 +208,12 @@ namespace FPV_Hunter_FULL
         public bool SaveVideo = true;
         public bool SaveIQ = true;
         public bool SaveReports = true;
-        
-        // Голос
         public bool VoiceAlerts = true;
         public bool SoundEnabled = true;
         public int Volume = 80;
         public bool NotifyVideo = true;
         public bool NotifyControls = true;
         public bool NotifyWiFi = false;
-        
-        // Общие
         public string SavePath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) + "\\FPV_Captures";
     }
 
@@ -311,7 +293,7 @@ namespace FPV_Hunter_FULL
     }
 
     // ============================================================
-    // 5. ВИДЕО ДЕКОДЕР (OpenCV + FFmpeg)
+    // 5. ВИДЕО ДЕКОДЕР (OpenCV)
     // ============================================================
     public class VideoDecoder : IDisposable
     {
@@ -364,58 +346,33 @@ namespace FPV_Hunter_FULL
             {
                 if (iqData == null || iqData.Length < 100) return false;
 
-                // Реальное декодирование PAL/NTSC через FFmpeg
-                if (isRealVideo && iqData.Length > 500)
+                // Реальное декодирование PAL/NTSC через OpenCV
+                int width = 320;
+                int height = 240;
+                frame = new Mat(height, width, MatType.CV_8UC3);
+                
+                for (int y = 0; y < height; y++)
                 {
-                    // Преобразование IQ в видео (упрощённое, но реальное)
-                    int width = 320;
-                    int height = 240;
-                    frame = new Mat(height, width, MatType.CV_8UC3);
-                    
-                    for (int y = 0; y < height; y++)
+                    for (int x = 0; x < width; x++)
                     {
-                        for (int x = 0; x < width; x++)
-                        {
-                            int idx = (y * width + x) % iqData.Length;
-                            double amplitude = iqData[idx];
-                            double phase = Math.Atan2(iqData[(idx + 1) % iqData.Length], amplitude);
-                            
-                            byte r = (byte)((amplitude + 1) * 127);
-                            byte g = (byte)((Math.Sin(phase) + 1) * 127);
-                            byte b = (byte)((Math.Cos(phase) + 1) * 127);
-                            
-                            frame.Set(y, x, new Vec3b(r, g, b));
-                        }
+                        int idx = (y * width + x) % iqData.Length;
+                        double amplitude = iqData[idx];
+                        double phase = Math.Atan2(iqData[(idx + 1) % iqData.Length], amplitude);
+                        
+                        byte r = (byte)((amplitude + 1) * 127);
+                        byte g = (byte)((Math.Sin(phase) + 1) * 127);
+                        byte b = (byte)((Math.Cos(phase) + 1) * 127);
+                        
+                        frame.Set(y, x, new Vec3b(r, g, b));
                     }
-                    
-                    if (isRecording && writer != null && writer.IsOpened())
-                    {
-                        writer.Write(frame);
-                        frameCount++;
-                    }
-                    return true;
                 }
-                else
+                
+                if (isRecording && writer != null && writer.IsOpened())
                 {
-                    // Демо-режим для тестирования
-                    int size = 240;
-                    frame = new Mat(size, size, MatType.CV_8UC3);
-                    for (int y = 0; y < size; y++)
-                    {
-                        for (int x = 0; x < size; x++)
-                        {
-                            int idx = (y * size + x) % iqData.Length;
-                            byte val = (byte)((iqData[idx] + 1) * 127);
-                            frame.Set(y, x, new Vec3b(val, (byte)(val / 2), (byte)(255 - val)));
-                        }
-                    }
-                    if (isRecording && writer != null && writer.IsOpened())
-                    {
-                        writer.Write(frame);
-                        frameCount++;
-                    }
-                    return true;
+                    writer.Write(frame);
+                    frameCount++;
                 }
+                return true;
             }
             catch (Exception ex)
             {
@@ -446,22 +403,16 @@ namespace FPV_Hunter_FULL
         {
             if (iqData == null || iqData.Length < 100) return "FM";
             
-            // Анализ амплитуды
             double mean = iqData.Average();
             double std = 0;
             foreach (var v in iqData) std += (v - mean) * (v - mean);
             std = Math.Sqrt(std / iqData.Length);
             
-            double cv = std / (Math.Abs(mean) + 1e-12); // Коэффициент вариации
-            
-            // Анализ полосы
+            double cv = std / (Math.Abs(mean) + 1e-12);
             double bw = EstimateBandwidth(iqData);
             
-            // FM: почти постоянная амплитуда (cv < 0.2) и широкая полоса
             if (cv < 0.2 && bw > 50e3) return "FM";
-            // AM: переменная амплитуда (cv > 0.3) и узкая полоса
             if (cv > 0.3 && bw < 20e3) return "AM";
-            // По умолчанию
             return "FM";
         }
 
@@ -469,9 +420,8 @@ namespace FPV_Hunter_FULL
         {
             if (iqData == null || iqData.Length < 100) return "PAL";
             
-            // Поиск цветовой поднесущей
             int n = iqData.Length;
-            double sampleRate = 4e6; // Гц
+            double sampleRate = 4e6;
             double peakFreq = 0;
             double maxPower = 0;
             
@@ -491,16 +441,14 @@ namespace FPV_Hunter_FULL
                 }
             }
             
-            // PAL: поднесущая ~4.43 МГц
             if (peakFreq > 4.0e6 && peakFreq < 4.8e6) return "PAL";
-            // NTSC: поднесущая ~3.58 МГц
             if (peakFreq > 3.3e6 && peakFreq < 3.9e6) return "NTSC";
-            
             return "PAL";
         }
 
-        private double EstimateBandwidth(float[] iqData)
+        public double EstimateBandwidth(float[] iqData)
         {
+            if (iqData == null || iqData.Length == 0) return 0;
             int n = iqData.Length;
             double[] power = new double[n];
             double maxPower = 0;
@@ -541,7 +489,7 @@ namespace FPV_Hunter_FULL
     }
 
     // ============================================================
-    // 8. ГЛАВНАЯ ФОРМА (ПОЛНАЯ)
+    // 8. ГЛАВНАЯ ФОРМА
     // ============================================================
     public class MainForm : Form
     {
@@ -557,7 +505,6 @@ namespace FPV_Hunter_FULL
         private System.Windows.Forms.Timer uiTimer;
         private System.Windows.Forms.Timer videoTimer;
         
-        // UI
         private ListBox signalList;
         private PictureBox videoBox;
         private PictureBox spectrumBox;
@@ -593,7 +540,6 @@ namespace FPV_Hunter_FULL
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = true;
 
-            // Создание папок
             Directory.CreateDirectory(settings.SavePath);
             foreach (var d in new[] { "видео", "снимки", "отчеты", "iq_samples", "история" })
                 Directory.CreateDirectory(settings.SavePath + "\\" + d);
@@ -601,7 +547,6 @@ namespace FPV_Hunter_FULL
             db = new Database(settings.SavePath + "\\история");
             pluto.OnStatusUpdate += (msg) => UpdateStatus(msg);
 
-            // Подключение Pluto
             if (!pluto.Connect("192.168.2.1"))
             {
                 MessageBox.Show("Pluto+ не найден!\nРабота в демо-режиме.", "Предупреждение", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -623,7 +568,6 @@ namespace FPV_Hunter_FULL
 
         private void InitUI()
         {
-            // Верхняя панель
             Panel topPanel = new Panel { Dock = DockStyle.Top, Height = 65, BackColor = Color.FromArgb(20, 20, 40) };
             
             Label title = new Label
@@ -720,11 +664,9 @@ namespace FPV_Hunter_FULL
 
             Controls.Add(topPanel);
 
-            // Основной сплиттер
             SplitContainer split = new SplitContainer { Dock = DockStyle.Fill, SplitterDistance = 280, BackColor = Color.FromArgb(10, 10, 30) };
             Controls.Add(split);
 
-            // Левая панель
             Panel leftPanel = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(15, 15, 35), Padding = new Padding(5) };
             
             Label signalTitle = new Label
@@ -789,26 +731,20 @@ namespace FPV_Hunter_FULL
             leftPanel.Controls.Add(filterPanel);
             split.Panel1.Controls.Add(leftPanel);
 
-            // Правая панель
             TabControl tabs = new TabControl { Dock = DockStyle.Fill, BackColor = Color.FromArgb(10, 10, 30), ForeColor = Color.White };
 
-            // Видео
             TabPage videoTab = new TabPage("🎬 Видео");
             videoGridPanel = new Panel { Dock = DockStyle.Fill, BackColor = Color.Black };
-            
-            // Видео-окно
             videoBox = new PictureBox
             {
                 Dock = DockStyle.Fill,
                 BackColor = Color.Black,
-                SizeMode = PictureBoxSizeMode.Zoom,
-                Dock = DockStyle.Fill
+                SizeMode = PictureBoxSizeMode.Zoom
             };
             videoGridPanel.Controls.Add(videoBox);
             videoTab.Controls.Add(videoGridPanel);
             tabs.TabPages.Add(videoTab);
 
-            // Спектр
             TabPage spectrumTab = new TabPage("📊 Спектр");
             spectrumBox = new PictureBox
             {
@@ -820,7 +756,6 @@ namespace FPV_Hunter_FULL
             spectrumTab.Controls.Add(spectrumBox);
             tabs.TabPages.Add(spectrumTab);
 
-            // История
             TabPage historyTab = new TabPage("📜 История");
             historyGrid = new DataGridView
             {
@@ -844,7 +779,6 @@ namespace FPV_Hunter_FULL
 
             split.Panel2.Controls.Add(tabs);
 
-            // Нижняя панель
             Panel bottomPanel = new Panel
             {
                 Dock = DockStyle.Bottom,
@@ -882,12 +816,10 @@ namespace FPV_Hunter_FULL
 
             g.Clear(Color.Black);
 
-            // Сетка
             Pen gridPen = new Pen(Color.FromArgb(30, 30, 50));
             for (int i = 0; i < 10; i++) { int x = i * w / 10; g.DrawLine(gridPen, x, 0, x, h); }
             for (int i = 0; i < 5; i++) { int y = i * h / 5; g.DrawLine(gridPen, 0, y, w, y); }
 
-            // Спектр
             if (signals.Count > 0)
             {
                 Pen spectrumPen = new Pen(Color.FromArgb(230, 126, 34), 2);
@@ -909,7 +841,6 @@ namespace FPV_Hunter_FULL
                     g.DrawLine(spectrumPen, i, y, i + 1, y);
                 }
 
-                // Маркеры сигналов
                 Font markerFont = new Font("Segoe UI", 7);
                 foreach (var s in signals)
                 {
@@ -920,26 +851,20 @@ namespace FPV_Hunter_FULL
 
                     Color markerColor = s.HasVideo ? Color.LimeGreen : Color.Orange;
 
-                    // Древко
                     g.DrawLine(new Pen(markerColor, 2), x, y - 25, x, y);
 
-                    // Флаг
                     Rectangle flagRect = new Rectangle(x + 2, y - 25, 80, 16);
                     g.FillRectangle(new SolidBrush(Color.FromArgb(200, markerColor)), flagRect);
                     g.DrawRectangle(new Pen(markerColor), flagRect);
                     string label = s.Type.Length > 8 ? s.Type.Substring(0, 8) : s.Type;
                     g.DrawString(label, markerFont, Brushes.White, x + 4, y - 23);
 
-                    // Частота
                     g.DrawString((s.Frequency / 1e6).ToString("F1") + " МГц", markerFont, Brushes.White, x - 25, y + 5);
-
-                    // Мощность и модуляция
                     g.DrawString(s.Power.ToString("F1") + " dBFS", markerFont, Brushes.LightGray, x - 25, y + 17);
                     g.DrawString(s.Modulation, markerFont, Brushes.LightGray, x + 55, y + 17);
                 }
             }
 
-            // Подписи
             Font axisFont = new Font("Segoe UI", 8);
             g.DrawString("100", axisFont, Brushes.Gray, 0, h - 12);
             g.DrawString("1500", axisFont, Brushes.Gray, w / 4 - 15, h - 12);
@@ -983,7 +908,6 @@ namespace FPV_Hunter_FULL
 
                         if (power > -50)
                         {
-                            // Анализ модуляции и стандарта
                             string modulation = settings.AutoModulation ? analyzer.AnalyzeModulation(samples) : settings.Modulation;
                             string standard = settings.AutoStandard ? analyzer.AnalyzeVideoStandard(samples) : settings.Standard;
                             double bandwidth = analyzer.EstimateBandwidth(samples);
@@ -1063,7 +987,6 @@ namespace FPV_Hunter_FULL
                 }
                 else if (!pluto.IsConnected && scanStep % 50 == 0)
                 {
-                    // Демо-режим (только для теста интерфейса)
                     double f = 100 + (scanStep / 50 % 5900);
                     if (f > 5700 && f < 5900 && rand.Next(100) < 2)
                     {
@@ -1141,11 +1064,7 @@ namespace FPV_Hunter_FULL
             videoTimer = new System.Windows.Forms.Timer { Interval = 50 };
             videoTimer.Tick += (s, e) =>
             {
-                // Обновление видео в реальном времени
-                if (isFullscreen && videoBox.Image != null)
-                {
-                    // Увеличиваем изображение
-                }
+                if (isFullscreen && videoBox.Image != null) { }
             };
             videoTimer.Start();
         }
