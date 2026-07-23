@@ -14,9 +14,6 @@ using OpenCvSharp;
 
 namespace FPV_Hunter_FULL
 {
-    // ============================================================
-    // 1. LIBIIO - БИБЛИОТЕКА ДЛЯ PLUTO SDR
-    // ============================================================
     public static class libiio
     {
         [DllImport("libiio.dll", CallingConvention = CallingConvention.Cdecl)]
@@ -51,9 +48,6 @@ namespace FPV_Hunter_FULL
         public static extern int iio_context_set_timeout(IntPtr ctx, int timeout);
     }
 
-    // ============================================================
-    // 2. PLUTO SDR - ПОЛНОЕ УПРАВЛЕНИЕ
-    // ============================================================
     public class PlutoSDR : IDisposable
     {
         private IntPtr ctx, phy, rx, tx, rx_channel, tx_channel, buffer;
@@ -64,8 +58,6 @@ namespace FPV_Hunter_FULL
         private double gain2 = 40;
         private bool agcEnabled = false;
         private bool agcEnabled2 = false;
-        private string antennaMode = "RX1"; // RX1, RX2, BOTH
-        private string gainMode = "manual";
         private bool dcTracking = true;
         private bool quadTracking = true;
         private double bandwidth = 4e6;
@@ -76,68 +68,32 @@ namespace FPV_Hunter_FULL
         public string HardwareModel { get; private set; } = "Неизвестно";
         public event Action<string> OnStatusUpdate;
 
-        // ============================================================
-        // ПОДКЛЮЧЕНИЕ
-        // ============================================================
         public bool Connect(string ip = "192.168.2.1")
         {
-            Log("🔌 Подключение к Pluto SDR...");
+            Log("Подключение к Pluto SDR...");
             Disconnect();
-
             ctx = libiio.iio_create_context_from_uri($"ip:{ip}");
             if (ctx == IntPtr.Zero) ctx = libiio.iio_create_context_from_uri("usb:");
-            if (ctx == IntPtr.Zero) { Log("❌ Pluto SDR не найден!"); return false; }
-
+            if (ctx == IntPtr.Zero) { Log("Pluto SDR не найден!"); return false; }
             libiio.iio_context_set_timeout(ctx, 5000);
-
             phy = libiio.iio_context_find_device(ctx, "ad9361-phy");
             rx = libiio.iio_context_find_device(ctx, "cf-ad9361-lpc");
             tx = libiio.iio_context_find_device(ctx, "cf-ad9361-dds-core-lpc");
-
-            if (phy == IntPtr.Zero || rx == IntPtr.Zero)
-            {
-                libiio.iio_context_destroy(ctx);
-                ctx = IntPtr.Zero;
-                Log("❌ Устройства AD9361 не найдены!");
-                return false;
-            }
-
+            if (phy == IntPtr.Zero || rx == IntPtr.Zero) { libiio.iio_context_destroy(ctx); ctx = IntPtr.Zero; Log("AD9361 не найден!"); return false; }
             rx_channel = libiio.iio_device_find_channel(rx, "voltage0", false);
-            if (rx_channel == IntPtr.Zero)
-            {
-                Log("❌ Канал RX1 не найден!");
-                return false;
-            }
+            if (rx_channel == IntPtr.Zero) { Log("RX1 канал не найден!"); return false; }
             libiio.iio_channel_enable(rx_channel);
-
-            // Второй канал (если Rev.C)
             var rx_channel2 = libiio.iio_device_find_channel(rx, "voltage1", false);
-            if (rx_channel2 != IntPtr.Zero)
-            {
-                libiio.iio_channel_enable(rx_channel2);
-                Log("✅ Канал RX2 найден (Rev.C)");
-            }
-
+            if (rx_channel2 != IntPtr.Zero) { libiio.iio_channel_enable(rx_channel2); Log("RX2 канал найден (Rev.C)"); }
             tx_channel = libiio.iio_device_find_channel(tx, "voltage0", true);
-            if (tx_channel != IntPtr.Zero)
-            {
-                libiio.iio_channel_enable(tx_channel);
-            }
-
+            if (tx_channel != IntPtr.Zero) { libiio.iio_channel_enable(tx_channel); }
             connected = true;
             Serial = GetSerial();
             Firmware = GetFirmware();
             ChipModel = GetChipModel();
             HardwareModel = GetHardwareModel();
-
             ConfigurePluto();
-
-            Log($"✅ Pluto SDR подключен!");
-            Log($"   📋 Серийный: {Serial}");
-            Log($"   📋 Модель: {ChipModel}");
-            Log($"   📋 Прошивка: {Firmware}");
-            Log($"   📋 Антенны: {GetAntennaInfo()}");
-
+            Log($"Pluto SDR подключен! Серийный: {Serial}, Модель: {ChipModel}");
             return true;
         }
 
@@ -146,47 +102,12 @@ namespace FPV_Hunter_FULL
             if (buffer != IntPtr.Zero) { libiio.iio_buffer_destroy(buffer); buffer = IntPtr.Zero; }
             if (ctx != IntPtr.Zero) { libiio.iio_context_destroy(ctx); ctx = IntPtr.Zero; }
             connected = false;
-            Log("🔌 Pluto SDR отключен.");
         }
 
-        // ============================================================
-        // ИНФОРМАЦИЯ ОБ УСТРОЙСТВЕ
-        // ============================================================
-        private string GetSerial()
-        {
-            if (ctx == IntPtr.Zero) return "Неизвестно";
-            IntPtr p = libiio.iio_context_get_attr_value(ctx, "serial");
-            return p != IntPtr.Zero ? Marshal.PtrToStringAnsi(p) : "Неизвестно";
-        }
-
-        private string GetFirmware()
-        {
-            if (phy == IntPtr.Zero) return "Неизвестно";
-            IntPtr val;
-            int ret = libiio.iio_device_attr_read_string(phy, "fw_version", out val);
-            return ret >= 0 ? Marshal.PtrToStringAnsi(val) : "Неизвестно";
-        }
-
-        private string GetChipModel()
-        {
-            if (phy == IntPtr.Zero) return "Неизвестно";
-            IntPtr val;
-            int ret = libiio.iio_device_attr_read_string(phy, "model", out val);
-            return ret >= 0 ? Marshal.PtrToStringAnsi(val) : "Неизвестно";
-        }
-
-        private string GetHardwareModel()
-        {
-            if (ctx == IntPtr.Zero) return "Неизвестно";
-            IntPtr p = libiio.iio_context_get_attr_value(ctx, "hw_model");
-            return p != IntPtr.Zero ? Marshal.PtrToStringAnsi(p) : "Неизвестно";
-        }
-
-        private string GetAntennaInfo()
-        {
-            var ch2 = libiio.iio_device_find_channel(rx, "voltage1", false);
-            return ch2 != IntPtr.Zero ? "2T2R (Rev.C)" : "1T1R";
-        }
+        private string GetSerial() { if (ctx == IntPtr.Zero) return "Неизвестно"; IntPtr p = libiio.iio_context_get_attr_value(ctx, "serial"); return p != IntPtr.Zero ? Marshal.PtrToStringAnsi(p) : "Неизвестно"; }
+        private string GetFirmware() { if (phy == IntPtr.Zero) return "Неизвестно"; IntPtr val; int ret = libiio.iio_device_attr_read_string(phy, "fw_version", out val); return ret >= 0 ? Marshal.PtrToStringAnsi(val) : "Неизвестно"; }
+        private string GetChipModel() { if (phy == IntPtr.Zero) return "Неизвестно"; IntPtr val; int ret = libiio.iio_device_attr_read_string(phy, "model", out val); return ret >= 0 ? Marshal.PtrToStringAnsi(val) : "Неизвестно"; }
+        private string GetHardwareModel() { if (ctx == IntPtr.Zero) return "Неизвестно"; IntPtr p = libiio.iio_context_get_attr_value(ctx, "hw_model"); return p != IntPtr.Zero ? Marshal.PtrToStringAnsi(p) : "Неизвестно"; }
 
         private void ConfigurePluto()
         {
@@ -201,151 +122,41 @@ namespace FPV_Hunter_FULL
             SetQuadTracking(quadTracking);
         }
 
-        // ============================================================
-        // УПРАВЛЕНИЕ RX1
-        // ============================================================
-        public bool SetFrequency(double freq)
-        {
-            if (!connected || phy == IntPtr.Zero) return false;
-            frequency = freq;
-            int ret = libiio.iio_device_attr_write_double(phy, "RX_LO_FREQ", freq);
-            if (ret >= 0) Log($"📡 Частота: {freq/1e6:F1} МГц");
-            return ret >= 0;
-        }
+        public bool SetFrequency(double freq) { if (!connected || phy == IntPtr.Zero) return false; frequency = freq; int ret = libiio.iio_device_attr_write_double(phy, "RX_LO_FREQ", freq); if (ret >= 0) Log($"Частота: {freq/1e6:F1} МГц"); return ret >= 0; }
+        public bool SetSampleRate(double rate) { if (!connected || phy == IntPtr.Zero) return false; sampleRate = rate; int ret = libiio.iio_device_attr_write_double(phy, "RX_SAMPLING_FREQ", rate); if (ret >= 0) libiio.iio_device_attr_write_double(rx, "RX_RF_BANDWIDTH", rate); return ret >= 0; }
+        public bool SetBandwidth(double bw) { if (!connected || phy == IntPtr.Zero) return false; bandwidth = bw; int ret = libiio.iio_device_attr_write_double(phy, "in_voltage_rf_bandwidth", bw); if (ret >= 0) Log($"Полоса: {bw/1e6:F1} МГц"); return ret >= 0; }
+        public bool SetGain(double gainValue) { if (!connected || phy == IntPtr.Zero) return false; gain = Math.Max(-3, Math.Min(71, gainValue)); int ret = libiio.iio_device_attr_write_double(phy, "RX_GAIN", gain); if (ret >= 0) Log($"Усиление RX1: {gain:F0} дБ"); return ret >= 0; }
+        public bool SetGain2(double gainValue) { if (!connected || phy == IntPtr.Zero) return false; gain2 = Math.Max(-3, Math.Min(71, gainValue)); int ret = libiio.iio_device_attr_write_double(phy, "RX_GAIN2", gain2); if (ret >= 0) Log($"Усиление RX2: {gain2:F0} дБ"); return ret >= 0; }
+        public bool SetAGC(bool enable) { if (!connected || phy == IntPtr.Zero) return false; agcEnabled = enable; int ret = libiio.iio_device_attr_write_string(phy, "RX_GAIN_MODE", enable ? "fast_attack" : "manual"); if (ret >= 0) Log($"AGC RX1: {(enable ? "Вкл" : "Выкл")}"); return ret >= 0; }
+        public bool SetAGC2(bool enable) { if (!connected || phy == IntPtr.Zero) return false; agcEnabled2 = enable; int ret = libiio.iio_device_attr_write_string(phy, "RX_GAIN_MODE2", enable ? "fast_attack" : "manual"); if (ret >= 0) Log($"AGC RX2: {(enable ? "Вкл" : "Выкл")}"); return ret >= 0; }
+        public bool SetDCTracking(bool enable) { if (!connected || phy == IntPtr.Zero) return false; dcTracking = enable; int ret = libiio.iio_device_attr_write_double(phy, "in_voltage_rf_dc_offset_tracking_en", enable ? 1 : 0); if (ret >= 0) Log($"DC Offset: {(enable ? "Вкл" : "Выкл")}"); return ret >= 0; }
+        public bool SetQuadTracking(bool enable) { if (!connected || phy == IntPtr.Zero) return false; quadTracking = enable; int ret = libiio.iio_device_attr_write_double(phy, "in_voltage_quadrature_tracking_en", enable ? 1 : 0); if (ret >= 0) Log($"Quadrature: {(enable ? "Вкл" : "Выкл")}"); return ret >= 0; }
+        public double GetRSSI() { if (!connected || phy == IntPtr.Zero) return -100; libiio.iio_device_attr_read_double(phy, "RX_RSSI", out double rssi); return rssi; }
+        public double GetRSSI2() { if (!connected || phy == IntPtr.Zero) return -100; libiio.iio_device_attr_read_double(phy, "RX_RSSI2", out double rssi); return rssi; }
+        public double GetTemperature() { if (!connected || phy == IntPtr.Zero) return 0; double temp = 0; libiio.iio_device_attr_read_double(phy, "in_voltage_temperature", out temp); return temp; }
 
-        public bool SetSampleRate(double rate)
-        {
-            if (!connected || phy == IntPtr.Zero) return false;
-            sampleRate = rate;
-            int ret = libiio.iio_device_attr_write_double(phy, "RX_SAMPLING_FREQ", rate);
-            if (ret >= 0) libiio.iio_device_attr_write_double(rx, "RX_RF_BANDWIDTH", rate);
-            return ret >= 0;
-        }
-
-        public bool SetBandwidth(double bw)
-        {
-            if (!connected || phy == IntPtr.Zero) return false;
-            bandwidth = bw;
-            int ret = libiio.iio_device_attr_write_double(phy, "in_voltage_rf_bandwidth", bw);
-            if (ret >= 0) Log($"📊 Полоса: {bw/1e6:F1} МГц");
-            return ret >= 0;
-        }
-
-        public bool SetGain(double gainValue)
-        {
-            if (!connected || phy == IntPtr.Zero) return false;
-            gain = Math.Max(-3, Math.Min(71, gainValue));
-            int ret = libiio.iio_device_attr_write_double(phy, "RX_GAIN", gain);
-            if (ret >= 0) Log($"📶 Усиление RX1: {gain:F0} дБ");
-            return ret >= 0;
-        }
-
-        public bool SetGain2(double gainValue)
-        {
-            if (!connected || phy == IntPtr.Zero) return false;
-            gain2 = Math.Max(-3, Math.Min(71, gainValue));
-            // Для второго канала используем атрибут RX_GAIN2 если доступен
-            int ret = libiio.iio_device_attr_write_double(phy, "RX_GAIN2", gain2);
-            if (ret >= 0) Log($"📶 Усиление RX2: {gain2:F0} дБ");
-            return ret >= 0;
-        }
-
-        public bool SetAGC(bool enable)
-        {
-            if (!connected || phy == IntPtr.Zero) return false;
-            agcEnabled = enable;
-            string mode = enable ? "fast_attack" : "manual";
-            int ret = libiio.iio_device_attr_write_string(phy, "RX_GAIN_MODE", mode);
-            if (ret >= 0) Log($"🔄 AGC RX1: {(enable ? "Вкл" : "Выкл")}");
-            return ret >= 0;
-        }
-
-        public bool SetAGC2(bool enable)
-        {
-            if (!connected || phy == IntPtr.Zero) return false;
-            agcEnabled2 = enable;
-            string mode = enable ? "fast_attack" : "manual";
-            int ret = libiio.iio_device_attr_write_string(phy, "RX_GAIN_MODE2", mode);
-            if (ret >= 0) Log($"🔄 AGC RX2: {(enable ? "Вкл" : "Выкл")}");
-            return ret >= 0;
-        }
-
-        public bool SetDCTracking(bool enable)
-        {
-            if (!connected || phy == IntPtr.Zero) return false;
-            dcTracking = enable;
-            int ret = libiio.iio_device_attr_write_double(phy, "in_voltage_rf_dc_offset_tracking_en", enable ? 1 : 0);
-            if (ret >= 0) Log($"🎯 DC Offset: {(enable ? "Вкл" : "Выкл")}");
-            return ret >= 0;
-        }
-
-        public bool SetQuadTracking(bool enable)
-        {
-            if (!connected || phy == IntPtr.Zero) return false;
-            quadTracking = enable;
-            int ret = libiio.iio_device_attr_write_double(phy, "in_voltage_quadrature_tracking_en", enable ? 1 : 0);
-            if (ret >= 0) Log($"🎯 Quadrature: {(enable ? "Вкл" : "Выкл")}");
-            return ret >= 0;
-        }
-
-        public double GetRSSI()
-        {
-            if (!connected || phy == IntPtr.Zero) return -100;
-            double rssi = -100;
-            libiio.iio_device_attr_read_double(phy, "RX_RSSI", out rssi);
-            return rssi;
-        }
-
-        public double GetRSSI2()
-        {
-            if (!connected || phy == IntPtr.Zero) return -100;
-            double rssi = -100;
-            libiio.iio_device_attr_read_double(phy, "RX_RSSI2", out rssi);
-            return rssi;
-        }
-
-        public double GetTemperature()
-        {
-            if (!connected || phy == IntPtr.Zero) return 0;
-            double temp = 0;
-            libiio.iio_device_attr_read_double(phy, "in_voltage_temperature", out temp);
-            return temp;
-        }
-
-        // ============================================================
-        // ПРИЁМ IQ-ДАННЫХ
-        // ============================================================
         public float[] ReceiveSamples(int count = 4096)
         {
             if (!connected || rx == IntPtr.Zero || rx_channel == IntPtr.Zero) return null;
-
             buffer = libiio.iio_device_create_buffer(rx, count, false);
             if (buffer == IntPtr.Zero) return null;
-
             int bytes = libiio.iio_buffer_refill(buffer);
             if (bytes < 0) { libiio.iio_buffer_destroy(buffer); buffer = IntPtr.Zero; return null; }
-
             IntPtr data = libiio.iio_buffer_first(buffer, rx_channel);
             if (data == IntPtr.Zero) { libiio.iio_buffer_destroy(buffer); buffer = IntPtr.Zero; return null; }
-
             int sampleCount = bytes / 4;
             float[] samples = new float[sampleCount];
-
             for (int i = 0; i < sampleCount; i++)
             {
                 short i_val = Marshal.ReadInt16(data, i * 4);
                 short q_val = Marshal.ReadInt16(data, i * 4 + 2);
                 samples[i] = (float)Math.Sqrt(i_val * i_val + q_val * q_val) / 2048.0f;
             }
-
             libiio.iio_buffer_destroy(buffer);
             buffer = IntPtr.Zero;
             return samples;
         }
 
-        // ============================================================
-        // СВОЙСТВА
-        // ============================================================
         public bool IsConnected => connected;
         public double Frequency => frequency;
         public double SampleRate => sampleRate;
@@ -354,15 +165,11 @@ namespace FPV_Hunter_FULL
         public bool AGC => agcEnabled;
         public bool AGC2 => agcEnabled2;
         public double Bandwidth => bandwidth;
-        public string AntennaMode => antennaMode;
 
         private void Log(string msg) { OnStatusUpdate?.Invoke(msg); }
         public void Dispose() { Disconnect(); }
     }
 
-    // ============================================================
-    // 3. ОСТАЛЬНЫЕ КЛАССЫ
-    // ============================================================
     public class SignalInfo
     {
         public double Frequency { get; set; }
@@ -380,13 +187,10 @@ namespace FPV_Hunter_FULL
 
     public class Settings
     {
-        // Сканирование
+        public string PlutoIP { get; set; } = "192.168.2.1";
         public double StartFreq { get; set; } = 70e6;
         public double StopFreq { get; set; } = 6000e6;
         public double Step { get; set; } = 5e6;
-        public double ScanSpeed { get; set; } = 50;
-
-        // Pluto
         public double SampleRate { get; set; } = 4e6;
         public double Bandwidth { get; set; } = 4e6;
         public double Gain { get; set; } = 40;
@@ -395,29 +199,16 @@ namespace FPV_Hunter_FULL
         public bool AGC2 { get; set; } = false;
         public bool DCTracking { get; set; } = true;
         public bool QuadTracking { get; set; } = true;
-        public string Antenna { get; set; } = "RX1";
-
-        // Видео
         public int VideoWidth { get; set; } = 640;
         public int VideoHeight { get; set; } = 480;
         public int FPS { get; set; } = 30;
-
-        // Запись
         public bool AutoRecord { get; set; } = true;
         public double RecordThreshold { get; set; } = -35;
         public double StopThreshold { get; set; } = -60;
-
-        // Оповещения
         public bool VoiceAlerts { get; set; } = true;
         public int VoiceVolume { get; set; } = 100;
         public bool SoundAlerts { get; set; } = true;
-
-        // Пути
-        public string PlutoIP { get; set; } = "192.168.2.1";
-        public string SavePath { get; set; } = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-            "FPV_Captures");
-
+        public string SavePath { get; set; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "FPV_Captures");
         public string VideoPath => Path.Combine(SavePath, "видео");
         public string SnapshotPath => Path.Combine(SavePath, "снимки");
         public string IQPath => Path.Combine(SavePath, "iq_samples");
@@ -425,9 +216,6 @@ namespace FPV_Hunter_FULL
         public string DatabasePath => Path.Combine(SavePath, "история");
     }
 
-    // ============================================================
-    // 4. БАЗА ДАННЫХ
-    // ============================================================
     public class Database
     {
         private string logFile;
@@ -436,8 +224,7 @@ namespace FPV_Hunter_FULL
 
         public Database(string path = null)
         {
-            if (string.IsNullOrEmpty(path))
-                path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data");
+            if (string.IsNullOrEmpty(path)) path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data");
             if (!Directory.Exists(path)) Directory.CreateDirectory(path);
             logFile = Path.Combine(path, "signals.log");
             LoadHistory();
@@ -526,9 +313,6 @@ namespace FPV_Hunter_FULL
         }
     }
 
-    // ============================================================
-    // 5. ВИДЕО ДЕКОДЕР
-    // ============================================================
     public class VideoDecoder : IDisposable
     {
         private VideoWriter writer;
@@ -630,9 +414,6 @@ namespace FPV_Hunter_FULL
         public void Dispose() { StopRecording(); }
     }
 
-    // ============================================================
-    // 6. АНАЛИЗАТОР
-    // ============================================================
     public class ModulationAnalyzer
     {
         public string AnalyzeModulation(float[] iqData)
@@ -685,9 +466,6 @@ namespace FPV_Hunter_FULL
         }
     }
 
-    // ============================================================
-    // 7. ГОЛОС
-    // ============================================================
     public class VoiceAnnouncer
     {
         private SpeechSynthesizer synth;
@@ -705,9 +483,6 @@ namespace FPV_Hunter_FULL
         public bool IsEnabled => enabled;
     }
 
-    // ============================================================
-    // 8. ГЛАВНАЯ ФОРМА
-    // ============================================================
     public class MainForm : Form
     {
         private PlutoSDR pluto = new PlutoSDR();
@@ -731,13 +506,14 @@ namespace FPV_Hunter_FULL
         private double currentFreq = 100e6;
 
         public MainForm()
-            LoadConfig();
         {
-            Text = "FPV HUNTER PRO v8.0 - ПОЛНАЯ ВЕРСИЯ";
+            Text = "FPV HUNTER PRO v8.0";
             Size = new Size(1400, 900);
             BackColor = Color.FromArgb(10, 10, 30);
             ForeColor = Color.White;
             StartPosition = FormStartPosition.CenterScreen;
+            FormBorderStyle = FormBorderStyle.FixedSingle;
+            MaximizeBox = true;
 
             string appDir = AppDomain.CurrentDomain.BaseDirectory;
             string dataDir = Path.Combine(appDir, "data");
@@ -749,6 +525,7 @@ namespace FPV_Hunter_FULL
                 if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
             }
 
+            LoadConfig();
             db = new Database(dataDir);
             pluto.OnStatusUpdate += (msg) => UpdateStatus(msg);
 
@@ -757,7 +534,6 @@ namespace FPV_Hunter_FULL
             UpdateStatus("Готов к работе");
             LoadHistory();
 
-            // Автоподключение
             ConnectPluto();
         }
 
@@ -772,7 +548,7 @@ namespace FPV_Hunter_FULL
                 foreach (var line in lines)
                 {
                     if (line.StartsWith(";") || string.IsNullOrWhiteSpace(line)) continue;
-                    var parts = line.Split(new[] { = }, 2);
+                    var parts = line.Split(new[] { '=' }, 2);
                     if (parts.Length != 2) continue;
                     string key = parts[0].Trim();
                     string value = parts[1].Trim();
@@ -803,24 +579,24 @@ namespace FPV_Hunter_FULL
                         case "SavePath": settings.SavePath = value.Replace("%USERNAME%", Environment.UserName); break;
                     }
                 }
-                UpdateStatus($"✅ Загружены настройки из config.ini");
+                UpdateStatus("Настройки загружены из config.ini");
             }
             catch (Exception ex)
             {
-                UpdateStatus($"⚠️ Ошибка загрузки config.ini: {ex.Message}");
+                UpdateStatus($"Ошибка загрузки config.ini: {ex.Message}");
             }
         }
 
         private void InitUI()
         {
-            Panel topPanel = new Panel { Dock = DockStyle.Top, Height = 70, BackColor = Color.FromArgb(20, 20, 40) };
+            Panel topPanel = new Panel { Dock = DockStyle.Top, Height = 65, BackColor = Color.FromArgb(20, 20, 40) };
 
             Label title = new Label
             {
                 Text = "FPV HUNTER PRO v8.0",
-                Font = new Font("Segoe UI", 18, FontStyle.Bold),
+                Font = new Font("Segoe UI", 16, FontStyle.Bold),
                 ForeColor = Color.FromArgb(230, 126, 34),
-                Location = new Point(10, 10),
+                Location = new Point(10, 15),
                 Size = new Size(400, 30)
             };
             topPanel.Controls.Add(title);
@@ -889,18 +665,6 @@ namespace FPV_Hunter_FULL
                 Size = new Size(100, 30)
             };
             settingsBtn.Click += (s, e) => ShowSettingsDialog();
-            var reloadBtn = new Button
-            {
-                Text = "🔄 Конфиг",
-                Font = new Font("Segoe UI", 9),
-                BackColor = Color.FromArgb(40, 40, 60),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-                Location = new Point(1180, 15),
-                Size = new Size(80, 30)
-            };
-            reloadBtn.Click += (s, e) => { LoadConfig(); UpdateStatus("Конфиг перезагружен"); };
-            topPanel.Controls.Add(reloadBtn);
             topPanel.Controls.Add(settingsBtn);
 
             recordBtn = new Button
@@ -941,6 +705,19 @@ namespace FPV_Hunter_FULL
             };
             fullscreenBtn.Click += (s, e) => ToggleFullscreen();
             topPanel.Controls.Add(fullscreenBtn);
+
+            var reloadBtn = new Button
+            {
+                Text = "🔄 Конфиг",
+                Font = new Font("Segoe UI", 9),
+                BackColor = Color.FromArgb(40, 40, 60),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Location = new Point(1180, 15),
+                Size = new Size(80, 30)
+            };
+            reloadBtn.Click += (s, e) => { LoadConfig(); UpdateStatus("Конфиг перезагружен"); };
+            topPanel.Controls.Add(reloadBtn);
 
             Controls.Add(topPanel);
 
@@ -1368,65 +1145,59 @@ namespace FPV_Hunter_FULL
         {
             isFullscreen = !isFullscreen;
             if (isFullscreen) { this.WindowState = FormWindowState.Maximized; this.FormBorderStyle = FormBorderStyle.None; fullscreenBtn.Text = "⛶ Выйти"; }
-            else { this.WindowState = FormWindowState.Normal; this.FormBorderStyle = FormBorderStyle.Sizable; fullscreenBtn.Text = "⛶ Во весь экран"; }
+            else { this.WindowState = FormWindowState.Normal; this.FormBorderStyle = FormBorderStyle.FixedSingle; fullscreenBtn.Text = "⛶ Во весь экран"; }
         }
 
         private void ShowSettingsDialog()
         {
             var dialog = new Form
             {
-                Text = "⚙️ НАСТРОЙКИ FPV HUNTER PRO",
-                Size = new Size(800, 650),
+                Text = "⚙️ НАСТРОЙКИ",
+                Size = new Size(800, 600),
                 BackColor = Color.FromArgb(10, 10, 30),
                 ForeColor = Color.White,
-                StartPosition = FormStartPosition.CenterParent,
-                FormBorderStyle = FormBorderStyle.Sizable
+                StartPosition = FormStartPosition.CenterParent
             };
 
             var panel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10), AutoScroll = true };
             int y = 10;
 
-            // Группа: Сканирование
             panel.Controls.Add(CreateGroup("📡 Сканирование", ref y));
             panel.Controls.Add(CreateParam("Начальная частота", settings.StartFreq / 1e6, "МГц", 70, 6000, ref y));
             panel.Controls.Add(CreateParam("Конечная частота", settings.StopFreq / 1e6, "МГц", 70, 6000, ref y));
             panel.Controls.Add(CreateParam("Шаг сканирования", settings.Step / 1e6, "МГц", 0.5, 20, ref y));
             y += 10;
 
-            // Группа: Pluto SDR
             panel.Controls.Add(CreateGroup("📻 Pluto SDR", ref y));
+            panel.Controls.Add(CreateParam("IP адрес", 0, "IP", 0, 0, ref y));
             panel.Controls.Add(CreateParam("Частота дискретизации", settings.SampleRate / 1e6, "МГц", 0.5, 61.44, ref y));
             panel.Controls.Add(CreateParam("Полоса пропускания", settings.Bandwidth / 1e6, "МГц", 0.2, 56, ref y));
             panel.Controls.Add(CreateParam("Усиление RX1", settings.Gain, "дБ", -3, 71, ref y));
             panel.Controls.Add(CreateParam("Усиление RX2", settings.Gain2, "дБ", -3, 71, ref y));
             panel.Controls.Add(CreateCheckbox("AGC RX1", settings.AGC, ref y));
             panel.Controls.Add(CreateCheckbox("AGC RX2", settings.AGC2, ref y));
-            panel.Controls.Add(CreateCheckbox("DC Offset Tracking", settings.DCTracking, ref y));
-            panel.Controls.Add(CreateCheckbox("Quadrature Tracking", settings.QuadTracking, ref y));
+            panel.Controls.Add(CreateCheckbox("DC Offset", settings.DCTracking, ref y));
+            panel.Controls.Add(CreateCheckbox("Quadrature", settings.QuadTracking, ref y));
             y += 10;
 
-            // Группа: Видео
             panel.Controls.Add(CreateGroup("🎬 Видео", ref y));
-            panel.Controls.Add(CreateParam("Разрешение", settings.VideoWidth, "x", 320, 1920, ref y));
+            panel.Controls.Add(CreateParam("Разрешение", settings.VideoWidth, "px", 320, 1920, ref y));
             panel.Controls.Add(CreateParam("FPS", settings.FPS, "fps", 1, 60, ref y));
             y += 10;
 
-            // Группа: Запись
             panel.Controls.Add(CreateGroup("💾 Запись", ref y));
             panel.Controls.Add(CreateCheckbox("Автозапись", settings.AutoRecord, ref y));
             panel.Controls.Add(CreateParam("Порог записи", settings.RecordThreshold, "dBFS", -80, 0, ref y));
             panel.Controls.Add(CreateParam("Порог остановки", settings.StopThreshold, "dBFS", -80, 0, ref y));
             y += 10;
 
-            // Группа: Оповещения
             panel.Controls.Add(CreateGroup("🔊 Оповещения", ref y));
-            panel.Controls.Add(CreateCheckbox("Голосовые оповещения", settings.VoiceAlerts, ref y));
+            panel.Controls.Add(CreateCheckbox("Голосовые", settings.VoiceAlerts, ref y));
             panel.Controls.Add(CreateParam("Громкость", settings.VoiceVolume, "%", 0, 100, ref y));
 
-            // Кнопки
             var saveBtn = new Button
             {
-                Text = "✅ СОХРАНИТЬ",
+                Text = "✅ Сохранить",
                 Font = new Font("Segoe UI", 10, FontStyle.Bold),
                 BackColor = Color.FromArgb(30, 60, 30),
                 ForeColor = Color.White,
@@ -1439,7 +1210,7 @@ namespace FPV_Hunter_FULL
 
             var cancelBtn = new Button
             {
-                Text = "❌ ОТМЕНА",
+                Text = "❌ Отмена",
                 Font = new Font("Segoe UI", 10, FontStyle.Bold),
                 BackColor = Color.FromArgb(60, 30, 30),
                 ForeColor = Color.White,
@@ -1478,7 +1249,6 @@ namespace FPV_Hunter_FULL
             {
                 double val = track.Value / 100.0;
                 valLabel.Text = $"{val:F1} {unit}";
-                // Обновляем соответствующую настройку
                 if (name.Contains("Начальная")) settings.StartFreq = val * 1e6;
                 else if (name.Contains("Конечная")) settings.StopFreq = val * 1e6;
                 else if (name.Contains("Шаг")) settings.Step = val * 1e6;
@@ -1531,27 +1301,45 @@ namespace FPV_Hunter_FULL
                 string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.ini");
                 using (var writer = new StreamWriter(configPath))
                 {
-                    writer.WriteLine($"StartFreq={settings.StartFreq}");
-                    writer.WriteLine($"StopFreq={settings.StopFreq}");
-                    writer.WriteLine($"Step={settings.Step}");
-                    writer.WriteLine($"SampleRate={settings.SampleRate}");
-                    writer.WriteLine($"Bandwidth={settings.Bandwidth}");
-                    writer.WriteLine($"Gain={settings.Gain}");
-                    writer.WriteLine($"Gain2={settings.Gain2}");
-                    writer.WriteLine($"AGC={settings.AGC}");
-                    writer.WriteLine($"AGC2={settings.AGC2}");
-                    writer.WriteLine($"DCTracking={settings.DCTracking}");
-                    writer.WriteLine($"QuadTracking={settings.QuadTracking}");
+                    writer.WriteLine("; ============================================================");
+                    writer.WriteLine("; FPV Hunter Pro v8.0 - Конфигурационный файл");
+                    writer.WriteLine("; ============================================================");
+                    writer.WriteLine();
+                    writer.WriteLine("[PlutoSDR]");
+                    writer.WriteLine($"PlutoIP={settings.PlutoIP}");
+                    writer.WriteLine($"SampleRate={settings.SampleRate/1e6:F1}");
+                    writer.WriteLine($"Bandwidth={settings.Bandwidth/1e6:F1}");
+                    writer.WriteLine($"Gain={settings.Gain:F0}");
+                    writer.WriteLine($"Gain2={settings.Gain2:F0}");
+                    writer.WriteLine($"AGC={settings.AGC.ToString().ToLower()}");
+                    writer.WriteLine($"AGC2={settings.AGC2.ToString().ToLower()}");
+                    writer.WriteLine($"DCTracking={settings.DCTracking.ToString().ToLower()}");
+                    writer.WriteLine($"QuadTracking={settings.QuadTracking.ToString().ToLower()}");
+                    writer.WriteLine();
+                    writer.WriteLine("[Scanning]");
+                    writer.WriteLine($"StartFreq={settings.StartFreq/1e6:F0}");
+                    writer.WriteLine($"StopFreq={settings.StopFreq/1e6:F0}");
+                    writer.WriteLine($"Step={settings.Step/1e6:F1}");
+                    writer.WriteLine();
+                    writer.WriteLine("[Video]");
                     writer.WriteLine($"VideoWidth={settings.VideoWidth}");
+                    writer.WriteLine($"VideoHeight={settings.VideoHeight}");
                     writer.WriteLine($"FPS={settings.FPS}");
-                    writer.WriteLine($"AutoRecord={settings.AutoRecord}");
-                    writer.WriteLine($"RecordThreshold={settings.RecordThreshold}");
-                    writer.WriteLine($"StopThreshold={settings.StopThreshold}");
-                    writer.WriteLine($"VoiceAlerts={settings.VoiceAlerts}");
+                    writer.WriteLine();
+                    writer.WriteLine("[Recording]");
+                    writer.WriteLine($"AutoRecord={settings.AutoRecord.ToString().ToLower()}");
+                    writer.WriteLine($"RecordThreshold={settings.RecordThreshold:F0}");
+                    writer.WriteLine($"StopThreshold={settings.StopThreshold:F0}");
+                    writer.WriteLine();
+                    writer.WriteLine("[Voice]");
+                    writer.WriteLine($"VoiceAlerts={settings.VoiceAlerts.ToString().ToLower()}");
                     writer.WriteLine($"VoiceVolume={settings.VoiceVolume}");
+                    writer.WriteLine($"SoundAlerts={settings.SoundAlerts.ToString().ToLower()}");
+                    writer.WriteLine();
+                    writer.WriteLine("[Paths]");
+                    writer.WriteLine($"SavePath={settings.SavePath}");
                 }
                 UpdateStatus("✅ Настройки сохранены!");
-                // Применяем настройки к Pluto
                 if (pluto.IsConnected)
                 {
                     pluto.SetSampleRate(settings.SampleRate);
@@ -1581,9 +1369,6 @@ namespace FPV_Hunter_FULL
         }
     }
 
-    // ============================================================
-    // ЗАПУСК
-    // ============================================================
     public class Program
     {
         [STAThread]
