@@ -27,12 +27,15 @@ jobs:
       - name: Build project
         run: dotnet build -c Release --no-restore
 
-      - name: Copy native DLLs
+      - name: Copy files to publish
         run: |
-          mkdir publish
-          copy bin\Release\net48\*.* publish\
-          if exist libs\*.dll copy libs\*.dll publish\
-          echo "✅ All files copied to publish"
+          New-Item -ItemType Directory -Force -Path publish
+          Copy-Item -Path bin\Release\net48\*.* -Destination publish\ -Recurse -Force
+          if (Test-Path libs\*.dll) {
+            Copy-Item -Path libs\*.dll -Destination publish\ -Force
+            Write-Host "✅ DLLs copied from libs"
+          }
+          Write-Host "✅ All files copied to publish"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
