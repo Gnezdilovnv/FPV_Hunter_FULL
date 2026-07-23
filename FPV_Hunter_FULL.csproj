@@ -3,22 +3,19 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net48</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
-    <LangVersion>latest</LangVersion>
+    <LangVersion>8.0</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <PlatformTarget>x64</PlatformTarget>
     <StartupObject>FPV_Hunter_FULL.Program</StartupObject>
-    <AssemblyTitle>FPV Hunter Pro FULL</AssemblyTitle>
+    <AssemblyTitle>FPV Hunter Pro</AssemblyTitle>
+    <AssemblyDescription>Полное управление Pluto SDR Rev.C</AssemblyDescription>
     <AssemblyVersion>8.0.0.0</AssemblyVersion>
     <FileVersion>8.0.0.0</FileVersion>
   </PropertyGroup>
-  
+
   <ItemGroup>
+    <PackageReference Include="OpenCvSharp4.Windows" Version="4.8.0.20230708" />
+    <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.8.0.20230708" />
     <PackageReference Include="System.Speech" Version="8.0.0" />
-  </ItemGroup>
-  
-  <ItemGroup>
-    <Content Include="libs\*.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
   </ItemGroup>
 </Project>

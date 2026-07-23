@@ -13,23 +13,26 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 6.0.x
+
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Setup NuGet
-        uses: NuGet/setup-nuget@v2
-
       - name: Restore NuGet packages
-        run: nuget restore FPV_Hunter_FULL.sln
+        run: dotnet restore
 
       - name: Build project
-        run: msbuild FPV_Hunter_FULL.csproj /p:Configuration=Release /p:DeployOnBuild=true /p:PublishDir=./publish
+        run: dotnet build -c Release --no-restore
 
       - name: Copy native DLLs
         run: |
-          mkdir publish\native
-          copy libs\*.dll publish\native\
-          copy publish\native\*.* publish\
+          mkdir publish
+          copy bin\Release\net48\*.* publish\
+          if exist libs\*.dll copy libs\*.dll publish\
+          echo "✅ All files copied to publish"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
