@@ -317,14 +317,13 @@ namespace FPV_Hunter_FULL
     {
         private VideoWriter writer;
         private bool isRecording;
-        private int frameCount;
         private int width = 640;
         private int height = 480;
         private int fps = 30;
         private Mat currentFrame;
         private object lockObj = new object();
 
-        public VideoDecoder() { isRecording = false; frameCount = 0; }
+        public VideoDecoder() { isRecording = false; }
         public void SetResolution(int w, int h) { width = w; height = h; }
         public void SetFPS(int fpsValue) { fps = fpsValue; }
 
@@ -335,7 +334,6 @@ namespace FPV_Hunter_FULL
                 currentFrame = null;
                 writer = new VideoWriter(path, FourCC.Default, fps, new OpenCvSharp.Size(width, height));
                 isRecording = true;
-                frameCount = 0;
             }
             catch { }
         }
@@ -470,7 +468,6 @@ namespace FPV_Hunter_FULL
     {
         private SpeechSynthesizer synth;
         private bool enabled = true;
-        private int volume = 100;
 
         public VoiceAnnouncer()
         {
@@ -1169,7 +1166,6 @@ namespace FPV_Hunter_FULL
             y += 10;
 
             panel.Controls.Add(CreateGroup("📻 Pluto SDR", ref y));
-            panel.Controls.Add(CreateParam("IP адрес", 0, "IP", 0, 0, ref y));
             panel.Controls.Add(CreateParam("Частота дискретизации", settings.SampleRate / 1e6, "МГц", 0.5, 61.44, ref y));
             panel.Controls.Add(CreateParam("Полоса пропускания", settings.Bandwidth / 1e6, "МГц", 0.2, 56, ref y));
             panel.Controls.Add(CreateParam("Усиление RX1", settings.Gain, "дБ", -3, 71, ref y));
@@ -1376,9 +1372,15 @@ namespace FPV_Hunter_FULL
         {
             try
             {
-                Directory.SetCurrentDirectory(AppDomain.CurrentDomain.BaseDirectory);
-                string dataDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data");
+                string exeDir = AppDomain.CurrentDomain.BaseDirectory;
+                Directory.SetCurrentDirectory(exeDir);
+                string dataDir = Path.Combine(exeDir, "data");
                 if (!Directory.Exists(dataDir)) Directory.CreateDirectory(dataDir);
+
+                try { NativeLibrary.Load("libiio.dll"); } catch { }
+                try { NativeLibrary.Load("OpenCvSharpExtern.dll"); } catch { }
+                OpenCvSharp.NativeMethods.LoadLibraries(new[] { exeDir });
+
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
                 Application.Run(new MainForm());
