@@ -1377,10 +1377,6 @@ namespace FPV_Hunter_FULL
                 string dataDir = Path.Combine(exeDir, "data");
                 if (!Directory.Exists(dataDir)) Directory.CreateDirectory(dataDir);
 
-                try { NativeLibrary.Load("libiio.dll"); } catch { }
-                try { NativeLibrary.Load("OpenCvSharpExtern.dll"); } catch { }
-                OpenCvSharp.NativeMethods.LoadLibraries(new[] { exeDir });
-
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
                 Application.Run(new MainForm());
