@@ -1,0 +1,43 @@
+name: Build FPV Hunter
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 6.0.x
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Publish
+        run: dotnet publish -c Release -r win-x64 --self-contained true -o publish
+
+      - name: Download DLLs from Release
+        run: |
+          curl -L -o publish/libiio.dll https://github.com/Gnezdilovnv/FPV_Hunter_FULL/releases/download/v8.0/libiio.dll
+          curl -L -o publish/OpenCvSharpExtern.dll https://github.com/Gnezdilovnv/FPV_Hunter_FULL/releases/download/v8.0/OpenCvSharpExtern.dll
+          curl -L -o publish/avcodec-62.dll https://github.com/Gnezdilovnv/FPV_Hunter_FULL/releases/download/v8.0/avcodec-62.dll
+          curl -L -o publish/avformat-62.dll https://github.com/Gnezdilovnv/FPV_Hunter_FULL/releases/download/v8.0/avformat-62.dll
+          curl -L -o publish/avutil-60.dll https://github.com/Gnezdilovnv/FPV_Hunter_FULL/releases/download/v8.0/avutil-60.dll
+          curl -L -o publish/swscale-9.dll https://github.com/Gnezdilovnv/FPV_Hunter_FULL/releases/download/v8.0/swscale-9.dll
+          curl -L -o publish/swresample-6.dll https://github.com/Gnezdilovnv/FPV_Hunter_FULL/releases/download/v8.0/swresample-6.dll
+          curl -L -o publish/avfilter-11.dll https://github.com/Gnezdilovnv/FPV_Hunter_FULL/releases/download/v8.0/avfilter-11.dll
+          curl -L -o publish/avdevice-62.dll https://github.com/Gnezdilovnv/FPV_Hunter_FULL/releases/download/v8.0/avdevice-62.dll
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FPV_Hunter_FULL
+          path: publish/
