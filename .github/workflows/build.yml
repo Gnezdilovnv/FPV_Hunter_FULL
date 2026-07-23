@@ -18,24 +18,18 @@ jobs:
         with:
           dotnet-version: 6.0.x
 
-      - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v2
-
       - name: Restore NuGet packages
         run: dotnet restore
 
       - name: Build project
         run: dotnet build -c Release --no-restore
 
-      - name: Copy files to publish
+      - name: Copy all files to publish
         run: |
           New-Item -ItemType Directory -Force -Path publish
           Copy-Item -Path bin\Release\net48\*.* -Destination publish\ -Recurse -Force
-          if (Test-Path libs\*.dll) {
-            Copy-Item -Path libs\*.dll -Destination publish\ -Force
-            Write-Host "✅ DLLs copied from libs"
-          }
-          Write-Host "✅ All files copied to publish"
+          Copy-Item -Path libs\*.dll -Destination publish\ -Force
+          Write-Host "✅ Все файлы скопированы в publish"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
